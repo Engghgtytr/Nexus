@@ -1,0 +1,109 @@
+/* ===========================================================
+   Nexus — Autenticação
+   Identidade: petróleo escuro + ciano-elétrico, apoio coral
+   Space Grotesk (títulos) + Inter (corpo)
+   =========================================================== */
+
+:root {
+  --petroleo: #0a0a0d;
+  --petroleo-2: #121016;
+  --superficie: #17141c;
+  --borda: #2a2433;
+  --texto: #ece9f1;
+  --texto-suave: #a29aad;
+  --ciano: #a855f7;
+  --ciano-escuro: #7c3aed;
+  --coral: #f0663f;
+  --font-titulo: "Space Grotesk", system-ui, sans-serif;
+  --font-corpo: "Inter", system-ui, sans-serif;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-corpo); background: var(--petroleo); color: var(--texto); }
+
+.auth-split { display: grid; grid-template-columns: 1.1fr 1fr; min-height: 100vh; }
+
+/* Lado da arte */
+.auth-arte {
+  position: relative;
+  background:
+    radial-gradient(900px 500px at 30% 20%, rgba(168,85,247,0.14), transparent 60%),
+    linear-gradient(160deg, #10191d, #0b1013);
+  padding: 48px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  overflow: hidden;
+}
+.rede { position: absolute; inset: 0; opacity: 0.9; }
+.rede .no {
+  position: absolute; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--ciano); box-shadow: 0 0 16px rgba(168,85,247,0.7);
+}
+.rede .n1 { left: 20%; top: 17%; } .rede .n2 { left: 57%; top: 35%; width: 20px; height: 20px; }
+.rede .n3 { left: 82%; top: 22%; } .rede .n4 { left: 45%; top: 70%; }
+.rede .n5 { left: 22%; top: 80%; } .rede .n6 { left: 80%; top: 75%; background: var(--coral); box-shadow: 0 0 16px rgba(240,102,63,0.6); }
+.rede .linhas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.rede .linhas line { stroke: rgba(168,85,247,0.35); stroke-width: 1.5; }
+.auth-arte-texto { position: relative; z-index: 2; }
+.auth-arte-texto h2 { font-family: var(--font-titulo); font-size: 2rem; line-height: 1.15; max-width: 12ch; }
+.auth-arte-texto p { color: var(--texto-suave); margin-top: 12px; max-width: 40ch; }
+
+/* Lado do formulário */
+.auth-form-lado { display: grid; place-items: center; padding: 40px; }
+.auth-caixa { width: min(380px, 100%); }
+.marca { display: flex; align-items: center; gap: 10px; margin-bottom: 32px; }
+.marca-ponto {
+  width: 18px; height: 18px; border-radius: 6px;
+  background: linear-gradient(135deg, var(--ciano), var(--ciano-escuro));
+  box-shadow: 0 0 14px rgba(168,85,247,0.6);
+  position: relative;
+}
+.marca-ponto::after {
+  content: ""; position: absolute; inset: 5px; border-radius: 2px; background: var(--petroleo);
+}
+.marca-nome { font-family: var(--font-titulo); font-weight: 700; font-size: 1.3rem; letter-spacing: 0.01em; }
+.auth-caixa h1 { font-family: var(--font-titulo); font-size: 1.6rem; margin-bottom: 6px; }
+.sub { color: var(--texto-suave); margin-bottom: 24px; }
+
+.erro {
+  background: rgba(240,102,63,0.12); color: #f7a488;
+  border: 1px solid rgba(240,102,63,0.3); border-radius: 10px;
+  padding: 11px 14px; font-size: 0.9rem; margin-bottom: 18px;
+}
+form label { display: block; font-size: 0.82rem; color: var(--texto-suave); margin-bottom: 16px; }
+form input {
+  width: 100%; margin-top: 7px;
+  background: var(--petroleo-2); border: 1px solid var(--borda);
+  border-radius: 10px; padding: 12px 14px; color: var(--texto);
+  font-family: inherit; font-size: 0.95rem;
+}
+form input:focus { outline: none; border-color: var(--ciano); box-shadow: 0 0 0 3px rgba(168,85,247,0.15); }
+.senha-wrap { position: relative; display: flex; align-items: center; }
+.senha-wrap input { padding-right: 76px; }
+.ver {
+  position: absolute; right: 8px; background: none; border: none;
+  color: var(--ciano); font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  font-family: inherit; padding: 6px 8px;
+}
+.btn-entrar {
+  width: 100%; margin-top: 6px; padding: 13px;
+  background: linear-gradient(135deg, var(--ciano), var(--ciano-escuro));
+  color: #ffffff; border: none; border-radius: 10px;
+  font-family: var(--font-titulo); font-weight: 600; font-size: 1rem; cursor: pointer;
+  transition: transform 0.08s var(--ease), filter 0.15s var(--ease);
+}
+.btn-entrar:hover { filter: brightness(1.08); }
+.btn-entrar:active { transform: translateY(1px); }
+.troca { margin-top: 20px; color: var(--texto-suave); font-size: 0.9rem; text-align: center; }
+.troca a { color: var(--ciano); text-decoration: none; font-weight: 600; }
+.troca a:hover { text-decoration: underline; }
+.demo-dica { margin-top: 20px; text-align: center; font-size: 0.82rem; color: var(--texto-suave);
+  background: var(--petroleo-2); border: 1px dashed var(--borda); border-radius: 8px; padding: 10px; }
+.demo-dica strong { color: var(--ciano); }
+
+@media (max-width: 820px) {
+  .auth-split { grid-template-columns: 1fr; }
+  .auth-arte { display: none; }
+}
+
+/* Logo (imagem) na marca do login */
+.marca-logo { width: 34px; height: 34px; border-radius: 9px; object-fit: cover; }

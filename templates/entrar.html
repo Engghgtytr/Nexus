@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus — {{ 'Criar conta' if modo == 'registrar' else 'Entrar' }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+</head>
+<body>
+<div class="auth-split">
+  <div class="auth-arte" aria-hidden="true">
+    <div class="rede">
+      <span class="no n1"></span><span class="no n2"></span><span class="no n3"></span>
+      <span class="no n4"></span><span class="no n5"></span><span class="no n6"></span>
+      <svg class="linhas" viewBox="0 0 400 400" preserveAspectRatio="none">
+        <line x1="80" y1="70" x2="230" y2="140"/><line x1="230" y1="140" x2="330" y2="90"/>
+        <line x1="230" y1="140" x2="180" y2="280"/><line x1="180" y1="280" x2="90" y2="320"/>
+        <line x1="180" y1="280" x2="320" y2="300"/><line x1="80" y1="70" x2="90" y2="320"/>
+      </svg>
+    </div>
+    <div class="auth-arte-texto">
+      <h2>Onde suas comunidades se encontram.</h2>
+      <p>Servidores, canais e conversas em tempo real — num lugar só.</p>
+    </div>
+  </div>
+
+  <div class="auth-form-lado">
+    <div class="auth-caixa">
+      <div class="marca">
+        <img class="marca-logo" src="{{ url_for('static', filename='img/logo.png') }}" alt="Nexus">
+        <span class="marca-nome">Nexus</span>
+      </div>
+      <h1>{{ 'Criar sua conta' if modo == 'registrar' else 'Bem-vindo de volta' }}</h1>
+      <p class="sub">{{ 'Leva menos de um minuto.' if modo == 'registrar' else 'Entre para continuar nas suas comunidades.' }}</p>
+
+      {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
+
+      <form method="POST" action="{{ url_for('registrar' if modo == 'registrar' else 'entrar') }}">
+        {% if modo == 'registrar' %}
+        <label>Nome de exibição
+          <input type="text" name="nome" placeholder="Como quer ser chamado" maxlength="32">
+        </label>
+        {% endif %}
+        <label>Usuário
+          <input type="text" name="usuario" placeholder="letras e números, sem espaço" required autofocus>
+        </label>
+        <label>Senha
+          <div class="senha-wrap">
+            <input type="password" name="senha" id="senha" placeholder="{{ 'mínimo 6 caracteres' if modo=='registrar' else 'sua senha' }}" required>
+            <button type="button" class="ver" onclick="verSenha()">Mostrar</button>
+          </div>
+        </label>
+        <button type="submit" class="btn-entrar">
+          {{ 'Criar conta' if modo == 'registrar' else 'Entrar' }}
+        </button>
+      </form>
+
+      <p class="troca">
+        {% if modo == 'registrar' %}
+          Já tem conta? <a href="{{ url_for('entrar') }}">Entrar</a>
+        {% else %}
+          Novo por aqui? <a href="{{ url_for('registrar') }}">Criar conta</a>
+        {% endif %}
+      </p>
+
+      {% if modo != 'registrar' %}
+      <p class="demo-dica">Conta de teste: <strong>demo</strong> / <strong>demo1234</strong></p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+<script>
+function verSenha(){
+  var i=document.getElementById("senha"), b=event.target;
+  if(i.type==="password"){i.type="text";b.textContent="Ocultar";}
+  else{i.type="password";b.textContent="Mostrar";}
+}
+</script>
+</body>
+</html>

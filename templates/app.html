@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+<div class="app" id="app" data-uid="{{ usuario.id }}" data-unome="{{ usuario.nome }}">
+
+  <!-- Coluna 1: servidores -->
+  <nav class="col-servidores" id="colServidores">
+    <button class="srv-btn inicio ativo" data-servidor="inicio" title="Início">
+      <img class="srv-logo" src="{{ url_for('static', filename='img/logo.png') }}" alt="Início">
+    </button>
+    <div class="srv-lista" id="srvLista"></div>
+    <button class="srv-btn nova" id="btnNovoServidor" title="Adicionar servidor">+</button>
+  </nav>
+
+  <!-- Coluna 2: canais -->
+  <aside class="col-canais">
+    <header class="canais-cabecalho" id="canaisCabecalho">
+      <span id="servidorNome">Início</span>
+      <button class="cab-acao" id="btnConvite" title="Convite" hidden>convite</button>
+    </header>
+    <div class="canais-lista" id="canaisLista">
+      <div class="vazio-canais">Selecione um servidor à esquerda.</div>
+    </div>
+    <div class="usuario-rodape">
+      <span class="avatar" id="meuAvatar">{{ usuario.nome[0]|upper }}</span>
+      <div class="usuario-info">
+        <span class="usuario-nome">{{ usuario.nome }}</span>
+        <span class="usuario-tag">@{{ usuario.usuario }}</span>
+      </div>
+      <button class="btn-som" id="btnSom" title="Som de notificação">🔔</button>
+      <a class="sair" href="{{ url_for('sair') }}" title="Sair">sair</a>
+    </div>
+    <audio id="somNotif" src="{{ url_for('static', filename='som/notificacao.mp3') }}" preload="auto"></audio>
+  </aside>
+
+  <!-- Coluna 3: mensagens -->
+  <main class="col-chat">
+    <!-- TELA INICIAL: Amigos (aparece quando nenhum servidor está aberto) -->
+    <section class="tela-amigos" id="telaAmigos">
+      <header class="amigos-topo">
+        <span class="amigos-titulo">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Amigos
+        </span>
+        <nav class="amigos-abas">
+          <button class="aba ativa">Disponível</button>
+          <button class="aba">Todos</button>
+          <button class="aba aba-add">Adicionar amigo</button>
+        </nav>
+      </header>
+      <div class="amigos-corpo">
+        <div class="amigos-vazio">
+          <div class="av-ilustra" aria-hidden="true"><img class="av-logo" src="{{ url_for('static', filename='img/logo.png') }}" alt=""></div>
+          <h2>Ainda sem amigos por aqui</h2>
+          <p>O sistema de amigos chega em breve. Por enquanto, crie um servidor ou entre em um com um convite para começar a conversar.</p>
+          <button class="btn-pri" id="btnCriarDaTela">Criar servidor</button>
+        </div>
+      </div>
+    </section>
+
+    <header class="chat-cabecalho" id="chatCabecalho" hidden>
+      <span class="canal-hash">#</span>
+      <span id="canalNome">bem-vindo</span>
+      <span class="canal-descricao" id="canalDescricao"></span>
+    </header>
+
+    <div class="mensagens" id="mensagens" hidden></div>
+
+    <div class="digitando-aviso" id="digitandoAviso"></div>
+
+    <div class="barra-resposta" id="barraResposta" hidden>
+      <span class="resp-texto"></span>
+      <button class="resp-cancelar" id="respCancelar" title="Cancelar">&times;</button>
+    </div>
+
+    <form class="caixa-envio" id="formEnvio" hidden>
+      <input type="text" id="entradaMsg" placeholder="Mensagem..." autocomplete="off" maxlength="2000">
+      <button type="submit" aria-label="Enviar">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+      </button>
+    </form>
+  </main>
+
+  <!-- Coluna 4: membros -->
+  <aside class="col-membros" id="colMembros" hidden>
+    <h3>Membros</h3>
+    <div id="membrosLista"></div>
+  </aside>
+</div>
+
+<!-- Modal genérico -->
+<div class="modal-fundo" id="modalFundo" hidden>
+  <div class="modal" id="modal"></div>
+</div>
+
+<script src="{{ url_for('static', filename='js/socket.io.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
