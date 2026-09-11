@@ -51,20 +51,14 @@
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           Amigos
         </span>
-        <nav class="amigos-abas">
-          <button class="aba ativa">Disponível</button>
-          <button class="aba">Todos</button>
-          <button class="aba aba-add">Adicionar amigo</button>
+        <nav class="amigos-abas" id="amigosAbas">
+          <button class="aba ativa" data-aba="todos">Todos</button>
+          <button class="aba" data-aba="pendentes">Pendentes</button>
+          <button class="aba" data-aba="bloqueados">Bloqueados</button>
+          <button class="aba aba-add" data-aba="adicionar">Adicionar amigo</button>
         </nav>
       </header>
-      <div class="amigos-corpo">
-        <div class="amigos-vazio">
-          <div class="av-ilustra" aria-hidden="true"><img class="av-logo" src="{{ url_for('static', filename='img/logo.png') }}" alt=""></div>
-          <h2>Ainda sem amigos por aqui</h2>
-          <p>O sistema de amigos chega em breve. Por enquanto, crie um servidor ou entre em um com um convite para começar a conversar.</p>
-          <button class="btn-pri" id="btnCriarDaTela">Criar servidor</button>
-        </div>
-      </div>
+      <div class="amigos-corpo" id="amigosCorpo"></div>
     </section>
 
     <header class="chat-cabecalho" id="chatCabecalho" hidden>

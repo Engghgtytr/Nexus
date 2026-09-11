@@ -359,3 +359,56 @@ button { font-family: inherit; cursor: pointer; }
 .btn-som { background: none; border: none; font-size: 1.05rem; padding: 6px; border-radius: 8px; line-height: 1; }
 .btn-som:hover { background: var(--superficie); }
 .btn-som.mudo { opacity: 0.5; }
+
+/* ===========================================================
+   AMIGOS: cards, pedidos, adicionar
+   =========================================================== */
+.amigos-corpo { display: block; padding: 24px 30px; overflow-y: auto; place-items: unset; }
+.amigos-secao { margin-bottom: 26px; }
+.amigos-secao h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--texto-fraco); margin-bottom: 12px; font-weight: 600; }
+.lista-amigos { display: flex; flex-direction: column; gap: 4px; }
+.amigo-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: 10px;
+}
+.amigo-card:hover { background: var(--superficie); }
+.amigo-avatar {
+  width: 40px; height: 40px; border-radius: 50%; flex: none; position: relative;
+  display: grid; place-items: center; font-family: var(--font-titulo); font-weight: 600; color: #fff;
+}
+.amigo-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.amigo-nome { font-weight: 600; font-size: 0.92rem; }
+.amigo-tag { font-size: 0.78rem; color: var(--texto-fraco); }
+.amigo-acoes { display: flex; align-items: center; gap: 6px; }
+.ponto-online {
+  position: absolute; right: -1px; bottom: -1px;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: #3fd97f; border: 2px solid var(--petroleo-2);
+}
+
+.add-amigo-caixa { max-width: 460px; }
+.add-amigo-caixa h2 { font-family: var(--font-titulo); margin-bottom: 6px; }
+.add-amigo-form { display: flex; gap: 10px; margin-top: 16px; }
+.add-amigo-form input {
+  flex: 1; background: var(--petroleo-2); border: 1px solid var(--borda);
+  border-radius: 10px; padding: 11px 14px; color: var(--texto); font-family: inherit; font-size: 0.94rem;
+}
+.add-amigo-form input:focus { outline: none; border-color: var(--ciano); }
+.add-amigo-msg { margin-top: 12px; font-size: 0.88rem; min-height: 1.2em; }
+.add-amigo-msg.sucesso { color: #3fd97f; }
+.add-amigo-msg.erro { color: var(--coral); }
+
+/* ---------- Lista de conversas de DM (coluna 2) ---------- */
+.item-dm { gap: 10px; }
+.dm-avatar-mini {
+  width: 32px; height: 32px; border-radius: 50%; flex: none; position: relative;
+  display: grid; place-items: center; font-family: var(--font-titulo); font-size: 0.78rem; font-weight: 600; color: #fff;
+}
+.dm-avatar-mini .ponto-online { width: 9px; height: 9px; border: 2px solid var(--petroleo-2); }
+.dm-info-mini { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.dm-nome-mini { font-size: 0.9rem; font-weight: 500; }
+.dm-preview-mini { font-size: 0.76rem; color: var(--texto-fraco); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-badge {
+  background: var(--coral); color: #fff; font-size: 0.7rem; font-weight: 700;
+  min-width: 18px; height: 18px; border-radius: 9px; display: grid; place-items: center; padding: 0 5px;
+}

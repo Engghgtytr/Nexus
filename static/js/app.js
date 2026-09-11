@@ -44,25 +44,246 @@ async function jpost(url, corpo) {
 }
 
 /* ---------------- alternar tela inicial (amigos) x chat ---------------- */
+let dmAtual = null; // conversa_id de DM aberta (null quando é canal de servidor)
+
 function mostrarTelaAmigos() {
   document.getElementById("telaAmigos").hidden = false;
   document.getElementById("chatCabecalho").hidden = true;
   document.getElementById("mensagens").hidden = true;
   document.getElementById("formEnvio").hidden = true;
   document.getElementById("colMembros").hidden = true;
-  document.getElementById("servidorNome").textContent = "Início";
+  document.getElementById("servidorNome").textContent = "Mensagens diretas";
   document.getElementById("btnConvite").hidden = true;
-  document.getElementById("canaisLista").innerHTML =
-    '<div class="vazio-canais">Você ainda não abriu um servidor. Crie um no botão + à esquerda.</div>';
   document.querySelectorAll(".srv-btn").forEach((x) => x.classList.remove("ativo"));
   document.querySelector('.srv-btn.inicio').classList.add("ativo");
-  if (canalAtual && socket) { socket.emit("sair_canal", { canal_id: canalAtual }); canalAtual = null; }
+  sairDoCanalOuDMAtual();
+  carregarListaDMs();
+  renderizarAbaAmigos();
 }
 function mostrarChat() {
   document.getElementById("telaAmigos").hidden = true;
   document.getElementById("chatCabecalho").hidden = false;
   document.getElementById("mensagens").hidden = false;
   document.getElementById("formEnvio").hidden = false;
+}
+function sairDoCanalOuDMAtual() {
+  if (canalAtual && socket) { socket.emit("sair_canal", { canal_id: canalAtual }); canalAtual = null; }
+  if (dmAtual && socket) { socket.emit("sair_dm", { conversa_id: dmAtual }); dmAtual = null; }
+}
+
+/* ---------------- lista de conversas de DM (coluna 2, na tela Início) ---------------- */
+async function carregarListaDMs() {
+  const cont = document.getElementById("canaisLista");
+  const convs = await jget("/api/dm/conversas");
+  cont.innerHTML = "";
+  const titulo = document.createElement("div");
+  titulo.className = "categoria-titulo";
+  titulo.innerHTML = "<span>Conversas</span>";
+  cont.appendChild(titulo);
+  if (!convs.length) {
+    const vazio = document.createElement("div");
+    vazio.className = "vazio-canais";
+    vazio.textContent = "Nenhuma conversa ainda. Adicione amigos para começar.";
+    cont.appendChild(vazio);
+    return;
+  }
+  convs.forEach((c) => cont.appendChild(itemConversaDM(c)));
+}
+function itemConversaDM(c) {
+  const el = document.createElement("div");
+  el.className = "canal-item item-dm";
+  el.dataset.conversa = c.conversa_id;
+  const cor = c.cor && c.cor !== "#a855f7" ? c.cor : corDe(c.nome);
+  el.innerHTML = `
+    <span class="dm-avatar-mini" style="background:${cor}">${iniciais(c.nome)}${c.online ? '<span class="ponto-online"></span>' : ""}</span>
+    <span class="dm-info-mini">
+      <span class="dm-nome-mini">${escapar(c.nome)}</span>
+      <span class="dm-preview-mini">${c.ultima ? escapar(c.ultima).slice(0, 30) : "Sem mensagens ainda"}</span>
+    </span>
+    ${c.nao_lidas ? `<span class="dm-badge">${c.nao_lidas}</span>` : ""}`;
+  el.addEventListener("click", () => abrirDM(c.id, c.nome, cor, el));
+  return el;
+}
+
+async function abrirDM(amigoId, nome, cor, el) {
+  const r = await jpost(`/api/dm/abrir/${amigoId}`);
+  if (!r.ok) { alert(r.dados.erro || "Não foi possível abrir a conversa."); return; }
+  const cid = r.dados.conversa_id;
+
+  if (canalAtual && socket) { socket.emit("sair_canal", { canal_id: canalAtual }); canalAtual = null; }
+  if (dmAtual && socket) socket.emit("sair_dm", { conversa_id: dmAtual });
+  dmAtual = cid;
+  ultimoAutor = null;
+
+  document.querySelectorAll(".canal-item").forEach((x) => x.classList.remove("ativo"));
+  if (el) el.classList.add("ativo");
+
+  document.getElementById("canalNome").textContent = nome;
+  document.getElementById("canalDescricao").textContent = "";
+  document.querySelector(".canal-hash").textContent = "@";
+  document.getElementById("formEnvio").hidden = false;
+  mostrarChat();
+
+  socket.emit("entrar_dm", { conversa_id: cid });
+
+  const msgs = await jget(`/api/dm/${cid}/mensagens`);
+  const cont = document.getElementById("mensagens");
+  cont.innerHTML = "";
+  if (!msgs.length) {
+    cont.innerHTML = `<div class="boas-vindas"><div class="bv-icone"><img class="av-logo" src="/static/img/logo.png" alt=""></div>
+      <h2>${escapar(nome)}</h2><p>Essa é a sua conversa com ${escapar(nome)}. Mande a primeira mensagem.</p></div>`;
+  } else {
+    msgs.forEach((m) => adicionarMensagem(m, true));
+  }
+  document.getElementById("entradaMsg").focus();
+  carregarListaDMs(); // atualiza contagem de não lidas
+}
+
+/* ---------------- aba Amigos: renderização ---------------- */
+let abaAmigosAtiva = "todos";
+document.getElementById("amigosAbas").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-aba]");
+  if (!b) return;
+  abaAmigosAtiva = b.dataset.aba;
+  document.querySelectorAll("#amigosAbas .aba").forEach((x) => x.classList.remove("ativa"));
+  b.classList.add("ativa");
+  renderizarAbaAmigos();
+});
+
+async function renderizarAbaAmigos() {
+  const cont = document.getElementById("amigosCorpo");
+  const dados = await jget("/api/amigos");
+
+  if (abaAmigosAtiva === "adicionar") {
+    cont.innerHTML = `
+      <div class="add-amigo-caixa">
+        <h2>Adicionar amigo</h2>
+        <p class="m-sub">Você pode adicionar amigos pelo nome de usuário do Nexus (com ou sem @).</p>
+        <form id="formAddAmigo" class="add-amigo-form">
+          <input type="text" id="inputAddAmigo" placeholder="Digite um nome de usuário" maxlength="24">
+          <button type="submit" class="btn-pri">Enviar pedido</button>
+        </form>
+        <p class="add-amigo-msg" id="addAmigoMsg"></p>
+      </div>`;
+    document.getElementById("formAddAmigo").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const inp = document.getElementById("inputAddAmigo");
+      const msg = document.getElementById("addAmigoMsg");
+      const nome = inp.value.trim();
+      if (!nome) return;
+      const { ok, dados: d } = await jpost("/api/amigos/solicitar", { usuario: nome });
+      if (ok) {
+        msg.className = "add-amigo-msg sucesso";
+        msg.textContent = d.status === "aceita" ? `Vocês agora são amigos!` : `Pedido enviado para ${nome}.`;
+        inp.value = "";
+        renderizarAbaAmigos.ultimaAtualizacao = Date.now();
+      } else {
+        msg.className = "add-amigo-msg erro";
+        msg.textContent = d.erro || "Não foi possível enviar o pedido.";
+      }
+    });
+    return;
+  }
+
+  if (abaAmigosAtiva === "pendentes") {
+    const total = dados.recebidos.length + dados.enviados.length;
+    if (!total) {
+      cont.innerHTML = vazioAmigos("Nenhum pedido pendente", "Pedidos de amizade que você enviar ou receber aparecem aqui.");
+      return;
+    }
+    let html = "";
+    if (dados.recebidos.length) {
+      html += `<div class="amigos-secao"><h3>Pedidos recebidos — ${dados.recebidos.length}</h3><div class="lista-amigos">`;
+      dados.recebidos.forEach((p) => {
+        const cor = corDe(p.nome);
+        html += `<div class="amigo-card">
+          <span class="amigo-avatar" style="background:${cor}">${iniciais(p.nome)}</span>
+          <div class="amigo-info"><span class="amigo-nome">${escapar(p.nome)}</span><span class="amigo-tag">@${escapar(p.usuario)}</span></div>
+          <div class="amigo-acoes">
+            <button class="btn-pri btn-pequeno" data-aceitar="${p.pedido_id}">Aceitar</button>
+            <button class="btn-sec btn-pequeno" data-recusar="${p.pedido_id}">Recusar</button>
+          </div></div>`;
+      });
+      html += `</div></div>`;
+    }
+    if (dados.enviados.length) {
+      html += `<div class="amigos-secao"><h3>Pedidos enviados — ${dados.enviados.length}</h3><div class="lista-amigos">`;
+      dados.enviados.forEach((p) => {
+        const cor = corDe(p.nome);
+        html += `<div class="amigo-card">
+          <span class="amigo-avatar" style="background:${cor}">${iniciais(p.nome)}</span>
+          <div class="amigo-info"><span class="amigo-nome">${escapar(p.nome)}</span><span class="amigo-tag">Pendente</span></div>
+        </div>`;
+      });
+      html += `</div></div>`;
+    }
+    cont.innerHTML = html;
+    cont.querySelectorAll("[data-aceitar]").forEach((b) => b.onclick = async () => {
+      await jpost(`/api/amigos/${b.dataset.aceitar}/responder`, { aceitar: true });
+      renderizarAbaAmigos();
+    });
+    cont.querySelectorAll("[data-recusar]").forEach((b) => b.onclick = async () => {
+      await jpost(`/api/amigos/${b.dataset.recusar}/responder`, { aceitar: false });
+      renderizarAbaAmigos();
+    });
+    return;
+  }
+
+  if (abaAmigosAtiva === "bloqueados") {
+    if (!dados.bloqueados.length) {
+      cont.innerHTML = vazioAmigos("Ninguém bloqueado", "Usuários bloqueados não podem te chamar nem te adicionar.");
+      return;
+    }
+    let html = `<div class="amigos-secao"><div class="lista-amigos">`;
+    dados.bloqueados.forEach((b) => {
+      const cor = corDe(b.nome);
+      html += `<div class="amigo-card">
+        <span class="amigo-avatar" style="background:${cor}">${iniciais(b.nome)}</span>
+        <div class="amigo-info"><span class="amigo-nome">${escapar(b.nome)}</span><span class="amigo-tag">@${escapar(b.usuario)}</span></div>
+        <div class="amigo-acoes"><button class="btn-sec btn-pequeno" data-desbloq="${b.id}">Desbloquear</button></div>
+      </div>`;
+    });
+    html += `</div></div>`;
+    cont.innerHTML = html;
+    cont.querySelectorAll("[data-desbloq]").forEach((b) => b.onclick = async () => {
+      await jpost(`/api/amigos/${b.dataset.desbloq}/desbloquear`);
+      renderizarAbaAmigos();
+    });
+    return;
+  }
+
+  // aba "todos"
+  if (!dados.amigos.length) {
+    cont.innerHTML = vazioAmigos("Ainda sem amigos por aqui", "Adicione alguém pelo nome de usuário na aba \"Adicionar amigo\" para começar a conversar.");
+    return;
+  }
+  let html = `<div class="amigos-secao"><h3>Todos os amigos — ${dados.amigos.length}</h3><div class="lista-amigos">`;
+  dados.amigos.forEach((a) => {
+    const cor = a.cor && a.cor !== "#a855f7" ? a.cor : corDe(a.nome);
+    html += `<div class="amigo-card">
+      <span class="amigo-avatar" style="background:${cor}">${iniciais(a.nome)}${a.online ? '<span class="ponto-online"></span>' : ""}</span>
+      <div class="amigo-info"><span class="amigo-nome">${escapar(a.nome)}</span><span class="amigo-tag">${a.online ? "Online" : "Offline"}</span></div>
+      <div class="amigo-acoes">
+        <button class="btn-pri btn-pequeno" data-msg="${a.id}" data-nome="${escapar(a.nome)}" data-cor="${cor}">Mensagem</button>
+        <button class="acao-msg" data-remover="${a.id}" title="Remover">✕</button>
+        <button class="acao-msg" data-bloquear="${a.id}" title="Bloquear">⛔</button>
+      </div></div>`;
+  });
+  html += `</div></div>`;
+  cont.innerHTML = html;
+  cont.querySelectorAll("[data-msg]").forEach((b) => b.onclick = () => abrirDM(b.dataset.msg, b.dataset.nome, b.dataset.cor));
+  cont.querySelectorAll("[data-remover]").forEach((b) => b.onclick = async () => {
+    if (confirm("Remover esta amizade?")) { await jpost(`/api/amigos/${b.dataset.remover}/remover`); renderizarAbaAmigos(); }
+  });
+  cont.querySelectorAll("[data-bloquear]").forEach((b) => b.onclick = async () => {
+    if (confirm("Bloquear este usuário?")) { await jpost(`/api/amigos/${b.dataset.bloquear}/bloquear`); renderizarAbaAmigos(); }
+  });
+}
+function vazioAmigos(titulo, texto) {
+  return `<div class="amigos-vazio">
+    <div class="av-ilustra" aria-hidden="true"><img class="av-logo" src="/static/img/logo.png" alt=""></div>
+    <h2>${titulo}</h2><p>${texto}</p>
+  </div>`;
 }
 
 /* ---------------- WebSocket ---------------- */
@@ -93,6 +314,44 @@ function conectarSocket() {
     aviso.textContent = `${d.nome} está digitando...`;
     clearTimeout(timerDigitando);
     timerDigitando = setTimeout(() => (aviso.textContent = ""), 2500);
+  });
+
+  /* ---- eventos de DM ---- */
+  socket.on("nova_dm", (m) => {
+    if (m.conversa_id === dmAtual) adicionarMensagem(m, true);
+    if (m.autor_id !== EU.id) tocarNotificacao();
+  });
+  socket.on("dm_editada", (d) => {
+    if (d.conversa_id !== dmAtual) return;
+    const el = document.querySelector(`.msg[data-id="${d.id}"] .msg-texto`);
+    if (el) el.innerHTML = escapar(d.conteudo) + ' <span class="editada">(editada)</span>';
+  });
+  socket.on("dm_apagada", (d) => {
+    if (d.conversa_id !== dmAtual) return;
+    const el = document.querySelector(`.msg[data-id="${d.id}"]`);
+    if (el) el.remove();
+  });
+  socket.on("dm_recebida_resumo", () => {
+    // atualiza a lista de conversas (não lidas, prévia) mesmo sem o chat aberto
+    if (!document.getElementById("telaAmigos").hidden) carregarListaDMs();
+  });
+
+  /* ---- eventos de amizade / presença ---- */
+  socket.on("novo_pedido_amizade", () => {
+    tocarNotificacao();
+    if (!document.getElementById("telaAmigos").hidden) renderizarAbaAmigos();
+  });
+  socket.on("pedido_aceito", () => {
+    if (!document.getElementById("telaAmigos").hidden) { renderizarAbaAmigos(); carregarListaDMs(); }
+  });
+  socket.on("pedido_recusado", () => {
+    if (!document.getElementById("telaAmigos").hidden) renderizarAbaAmigos();
+  });
+  socket.on("amigo_removido", () => {
+    if (!document.getElementById("telaAmigos").hidden) { renderizarAbaAmigos(); carregarListaDMs(); }
+  });
+  socket.on("amigo_status", () => {
+    if (!document.getElementById("telaAmigos").hidden) { renderizarAbaAmigos(); carregarListaDMs(); }
   });
 }
 
@@ -173,13 +432,15 @@ function itemCanal(c) {
 
 /* ---------------- canais e mensagens ---------------- */
 async function abrirCanal(canal, el) {
-  // sai do canal anterior (socket)
+  // sai do canal anterior (socket) e de qualquer DM aberta
   if (canalAtual && socket) socket.emit("sair_canal", { canal_id: canalAtual });
+  if (dmAtual && socket) { socket.emit("sair_dm", { conversa_id: dmAtual }); dmAtual = null; }
 
   document.querySelectorAll(".canal-item").forEach((x) => x.classList.remove("ativo"));
   if (el) el.classList.add("ativo");
   canalAtual = canal.id;
   ultimoAutor = null;
+  document.querySelector(".canal-hash").textContent = "#";
   mostrarChat();
 
   document.getElementById("canalNome").textContent = canal.nome;
@@ -200,7 +461,7 @@ async function abrirCanal(canal, el) {
   document.getElementById("entradaMsg").focus();
 }
 
-function adicionarMensagem(m) {
+function adicionarMensagem(m, isDM) {
   const cont = document.getElementById("mensagens");
   const bv = cont.querySelector(".boas-vindas");
   if (bv) bv.remove();
@@ -233,25 +494,25 @@ function adicionarMensagem(m) {
       <div class="msg-reacoes"></div>
     </div>
     <div class="msg-acoes">
-      <button class="acao-msg" data-a="reagir" title="Reagir">☺</button>
+      ${isDM ? "" : '<button class="acao-msg" data-a="reagir" title="Reagir">☺</button>'}
       <button class="acao-msg" data-a="responder" title="Responder">↰</button>
       ${souAutor ? '<button class="acao-msg" data-a="editar" title="Editar">✎</button>' : ""}
       ${souAutor ? '<button class="acao-msg" data-a="apagar" title="Apagar">🗑</button>' : ""}
     </div>`;
 
   // ações
-  el.querySelector('[data-a="reagir"]').onclick = (e) => abrirSeletorEmoji(e, m.id);
+  if (!isDM) el.querySelector('[data-a="reagir"]').onclick = (e) => abrirSeletorEmoji(e, m.id);
   el.querySelector('[data-a="responder"]').onclick = () => iniciarResposta(m);
   if (souAutor) {
-    el.querySelector('[data-a="editar"]').onclick = () => iniciarEdicao(el, m);
+    el.querySelector('[data-a="editar"]').onclick = () => iniciarEdicao(el, m, isDM);
     el.querySelector('[data-a="apagar"]').onclick = () => {
-      if (confirm("Apagar esta mensagem?")) socket.emit("apagar_mensagem", { id: m.id });
+      if (confirm("Apagar esta mensagem?")) socket.emit(isDM ? "apagar_dm" : "apagar_mensagem", { id: m.id });
     };
   }
 
   cont.appendChild(el);
-  // renderiza reações existentes
-  (m.reacoes || []).forEach((r) => desenharReacao(m.id, r.emoji, r.total, r.eu));
+  // renderiza reações existentes (não se aplica a DM)
+  if (!isDM) (m.reacoes || []).forEach((r) => desenharReacao(m.id, r.emoji, r.total, r.eu));
   cont.scrollTop = cont.scrollHeight;
   ultimoAutor = m.responde_a ? null : m.autor_id;
 }
@@ -270,7 +531,7 @@ function cancelarResposta() {
 }
 
 /* ---- edição inline ---- */
-function iniciarEdicao(el, m) {
+function iniciarEdicao(el, m, isDM) {
   const corpoTexto = el.querySelector(".msg-texto");
   const original = m.conteudo;
   corpoTexto.innerHTML = `
@@ -281,7 +542,7 @@ function iniciarEdicao(el, m) {
   inp.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       const novo = inp.value.trim();
-      if (novo && novo !== original) socket.emit("editar_mensagem", { id: m.id, conteudo: novo });
+      if (novo && novo !== original) socket.emit(isDM ? "editar_dm" : "editar_mensagem", { id: m.id, conteudo: novo });
       else corpoTexto.innerHTML = escapar(original) + (m.editada ? ' <span class="editada">(editada)</span>' : "");
     } else if (e.key === "Escape") {
       corpoTexto.innerHTML = escapar(original) + (m.editada ? ' <span class="editada">(editada)</span>' : "");
@@ -340,11 +601,18 @@ document.getElementById("formEnvio").addEventListener("submit", (e) => {
   e.preventDefault();
   const inp = document.getElementById("entradaMsg");
   const txt = inp.value.trim();
-  if (!txt || !canalAtual) return;
-  socket.emit("enviar_mensagem", {
-    canal_id: canalAtual, conteudo: txt,
-    responde_a: respondendoA ? respondendoA.id : null,
-  });
+  if (!txt || (!canalAtual && !dmAtual)) return;
+  if (dmAtual) {
+    socket.emit("enviar_dm", {
+      conversa_id: dmAtual, conteudo: txt,
+      responde_a: respondendoA ? respondendoA.id : null,
+    });
+  } else {
+    socket.emit("enviar_mensagem", {
+      canal_id: canalAtual, conteudo: txt,
+      responde_a: respondendoA ? respondendoA.id : null,
+    });
+  }
   inp.value = "";
   cancelarResposta();
 });
@@ -526,7 +794,6 @@ atualizarBotaoSom();
 
 /* ---------------- início ---------------- */
 document.querySelector(".srv-btn.inicio").addEventListener("click", mostrarTelaAmigos);
-document.getElementById("btnCriarDaTela").addEventListener("click", () => abrirModalNovoServidor());
 
 (async function iniciar() {
   conectarSocket();

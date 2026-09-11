@@ -191,6 +191,43 @@ def _schema():
             emoji TEXT NOT NULL,
             UNIQUE (mensagem_id, usuario_id, emoji)
         );
+        CREATE TABLE IF NOT EXISTS amizades (
+            id {pk},
+            solicitante_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+            destinatario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+            status TEXT NOT NULL DEFAULT 'pendente',
+            criado_em TEXT NOT NULL,
+            respondido_em TEXT,
+            UNIQUE (solicitante_id, destinatario_id)
+        );
+        CREATE TABLE IF NOT EXISTS bloqueios (
+            id {pk},
+            usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+            bloqueado_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+            criado_em TEXT NOT NULL,
+            UNIQUE (usuario_id, bloqueado_id)
+        );
+        CREATE TABLE IF NOT EXISTS conversas_dm (
+            id {pk},
+            usuario_a_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+            usuario_b_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+            criado_em TEXT NOT NULL,
+            UNIQUE (usuario_a_id, usuario_b_id)
+        );
+        CREATE TABLE IF NOT EXISTS mensagens_dm (
+            id {pk},
+            conversa_id INTEGER NOT NULL REFERENCES conversas_dm(id) ON DELETE CASCADE,
+            autor_id INTEGER NOT NULL REFERENCES usuarios(id),
+            conteudo TEXT NOT NULL,
+            responde_a INTEGER REFERENCES mensagens_dm(id) ON DELETE SET NULL,
+            editada INTEGER NOT NULL DEFAULT 0,
+            lida INTEGER NOT NULL DEFAULT 0,
+            criado_em TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_amizades_sol ON amizades(solicitante_id);
+        CREATE INDEX IF NOT EXISTS idx_amizades_dest ON amizades(destinatario_id);
+        CREATE INDEX IF NOT EXISTS idx_bloqueios_user ON bloqueios(usuario_id);
+        CREATE INDEX IF NOT EXISTS idx_dm_conversa ON mensagens_dm(conversa_id);
         CREATE INDEX IF NOT EXISTS idx_membros_srv ON membros(servidor_id);
         CREATE INDEX IF NOT EXISTS idx_membros_user ON membros(usuario_id);
         CREATE INDEX IF NOT EXISTS idx_canais_srv ON canais(servidor_id);
@@ -282,6 +319,39 @@ def seed_demo():
                 "INSERT INTO mensagens (canal_id, autor_id, conteudo, criado_em) VALUES (?,?,?,?)",
                 (cid, uid, "Bem-vindo ao Nexus! Este é o canal geral. Mande a primeira mensagem.", agora()),
             )
+
+
+def obter_ou_criar_conversa(conn, uid_a, uid_b):
+    """Retorna o id da conversa DM entre dois usuários, criando se não existir.
+    Guarda sempre com o menor id primeiro, para a UNIQUE funcionar nos dois sentidos."""
+    a, b = (uid_a, uid_b) if uid_a < uid_b else (uid_b, uid_a)
+    row = conn.execute(
+        "SELECT id FROM conversas_dm WHERE usuario_a_id=? AND usuario_b_id=?", (a, b)
+    ).fetchone()
+    if row:
+        return row["id"]
+    return inserir(
+        conn,
+        "INSERT INTO conversas_dm (usuario_a_id, usuario_b_id, criado_em) VALUES (?,?,?)",
+        (a, b, agora()),
+    )
+
+
+def sao_amigos(conn, uid_a, uid_b):
+    row = conn.execute(
+        """SELECT 1 FROM amizades WHERE status='aceita' AND
+           ((solicitante_id=? AND destinatario_id=?) OR (solicitante_id=? AND destinatario_id=?))""",
+        (uid_a, uid_b, uid_b, uid_a),
+    ).fetchone()
+    return row is not None
+
+
+def existe_bloqueio(conn, uid_a, uid_b):
+    row = conn.execute(
+        "SELECT 1 FROM bloqueios WHERE (usuario_id=? AND bloqueado_id=?) OR (usuario_id=? AND bloqueado_id=?)",
+        (uid_a, uid_b, uid_b, uid_a),
+    ).fetchone()
+    return row is not None
 
 
 if __name__ == "__main__":

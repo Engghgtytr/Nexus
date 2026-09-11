@@ -33,7 +33,9 @@ Ou clique em "Criar conta" para fazer a sua (você já ganha um servidor própri
 ## O que funciona
 
 - **Login e cadastro** com senha protegida por hash.
-- **Tela inicial de Amigos** ao abrir (o sistema de amizade em si chega numa próxima etapa).
+- **Sistema de amigos completo**: adicionar por nome de usuário, aceitar/recusar pedidos, remover, bloquear/desbloquear.
+- **Status online/offline em tempo real** entre amigos.
+- **Mensagens diretas (DM)**: converse com qualquer amigo, com reposta, edição e exclusão (tudo em tempo real, igual aos canais de servidor).
 - **Servidores (comunidades)**: comece sem nenhum; crie pelo modal com moldes (Jogos, Amigos, Grupo de estudos, Clube escolar), cada um com canais próprios, ou entre por convite.
 - **Categorias e canais de texto** organizados na barra lateral.
 - **Mensagens em tempo real**: quem está no mesmo canal recebe na hora, sem
