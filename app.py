@@ -18,6 +18,7 @@ Eventos WebSocket:
 """
 
 import os
+import json
 from functools import wraps
 from flask import (
     Flask, render_template, request, jsonify, redirect, url_for, session
@@ -71,13 +72,15 @@ def eh_membro(conn, servidor_id, usuario_id):
 
 
 def canal_do_usuario(conn, canal_id, usuario_id):
-    """Retorna o canal se o usuário for membro do servidor dele; senão None."""
+    """Retorna o canal se o usuário for membro do servidor dele e puder vê-lo; senão None."""
     row = conn.execute(
         """SELECT c.* FROM canais c
            JOIN membros m ON m.servidor_id = c.servidor_id
            WHERE c.id=? AND m.usuario_id=?""",
         (canal_id, usuario_id),
     ).fetchone()
+    if row and not db.pode_ver_canal(conn, row, row["servidor_id"], usuario_id):
+        return None
     return row
 
 
@@ -192,6 +195,11 @@ def api_entrar_servidor():
             return jsonify({"erro": "Convite inválido."}), 404
         if eh_membro(conn, srv["id"], uid):
             return jsonify({"id": srv["id"], "nome": srv["nome"], "ja_era": True})
+        banido = conn.execute(
+            "SELECT 1 FROM banidos WHERE servidor_id=? AND usuario_id=?", (srv["id"], uid)
+        ).fetchone()
+        if banido:
+            return jsonify({"erro": "Você foi banido deste servidor."}), 403
         conn.execute(
             "INSERT INTO membros (servidor_id, usuario_id, papel, entrou_em) VALUES (?,?,?,?)",
             (srv["id"], uid, "membro", db.agora()),
@@ -210,30 +218,59 @@ def api_servidor_detalhe(sid):
         cats = conn.execute(
             "SELECT * FROM categorias WHERE servidor_id=? ORDER BY ordem, id", (sid,)
         ).fetchall()
-        canais = conn.execute(
+        canais_todos = conn.execute(
             "SELECT * FROM canais WHERE servidor_id=? ORDER BY ordem, id", (sid,)
+        ).fetchall()
+        canais = [c for c in canais_todos if db.pode_ver_canal(conn, c, sid, uid)]
+        cargos = conn.execute(
+            "SELECT * FROM cargos WHERE servidor_id=? ORDER BY ordem DESC", (sid,)
         ).fetchall()
         membros = conn.execute(
             """SELECT u.id, u.nome_exibicao AS nome, u.usuario, u.cor, m.papel
                FROM membros m JOIN usuarios u ON u.id = m.usuario_id
                WHERE m.servidor_id=? ORDER BY
-                 CASE m.papel WHEN 'dono' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.nome_exibicao""",
+                 CASE m.papel WHEN 'dono' THEN 0 ELSE 1 END, u.nome_exibicao""",
             (sid,),
         ).fetchall()
-    # organiza canais por categoria
+        cargos_por_membro = {}
+        for row in conn.execute(
+            """SELECT cm.usuario_id, c.id, c.nome, c.cor FROM cargo_membros cm
+               JOIN cargos c ON c.id = cm.cargo_id WHERE c.servidor_id=?""", (sid,)):
+            cargos_por_membro.setdefault(row["usuario_id"], []).append(
+                {"id": row["id"], "nome": row["nome"], "cor": row["cor"]})
+        minhas_permissoes = list(db.permissoes_do_membro(conn, sid, uid))
+        sou_dono = db.eh_dono_servidor(conn, sid, uid)
+
     cats_out = []
     for c in cats:
         cats_out.append({
             "id": c["id"], "nome": c["nome"],
-            "canais": [dict(k) for k in canais if k["categoria_id"] == c["id"]],
+            "canais": [_serializar_canal(k) for k in canais if k["categoria_id"] == c["id"]],
         })
-    sem_cat = [dict(k) for k in canais if k["categoria_id"] is None]
+    sem_cat = [_serializar_canal(k) for k in canais if k["categoria_id"] is None]
+    membros_out = []
+    for m in membros:
+        d = dict(m)
+        d["cargos"] = cargos_por_membro.get(m["id"], [])
+        membros_out.append(d)
     return jsonify({
         "id": srv["id"], "nome": srv["nome"], "convite": srv["convite"],
         "dono_id": srv["dono_id"],
         "categorias": cats_out, "sem_categoria": sem_cat,
-        "membros": [dict(m) for m in membros],
+        "membros": membros_out,
+        "cargos": [dict(c) | {"permissoes": json.loads(c["permissoes"] or "[]")} for c in cargos],
+        "minhas_permissoes": minhas_permissoes,
+        "sou_dono": sou_dono,
     })
+
+
+def _serializar_canal(c):
+    d = dict(c)
+    try:
+        d["cargos_permitidos"] = json.loads(c["cargos_permitidos"]) if c["cargos_permitidos"] else []
+    except (ValueError, TypeError):
+        d["cargos_permitidos"] = []
+    return d
 
 
 @app.route("/api/servidores/<int:sid>/canais", methods=["POST"])
@@ -246,14 +283,283 @@ def api_criar_canal(sid):
     if not nome:
         return jsonify({"erro": "Dê um nome ao canal."}), 400
     with db.get_connection() as conn:
-        m = conn.execute("SELECT papel FROM membros WHERE servidor_id=? AND usuario_id=?", (sid, uid)).fetchone()
-        if not m or m["papel"] not in ("dono", "admin"):
-            return jsonify({"erro": "Só o dono ou admin pode criar canais."}), 403
+        if not eh_membro(conn, sid, uid):
+            return jsonify({"erro": "Você não é membro deste servidor."}), 403
+        if not db.tem_permissao(conn, sid, uid, "gerenciar_canais"):
+            return jsonify({"erro": "Você não tem permissão para gerenciar canais."}), 403
         cid = db.inserir(conn,
             "INSERT INTO canais (servidor_id, categoria_id, nome, ordem, criado_em) VALUES (?,?,?,?,?)",
             (sid, categoria_id, nome, 99, db.agora()),
         )
+        registrar_notificacao_geral(conn, sid, uid, f"criou o canal #{nome}")
     return jsonify({"id": cid, "nome": nome, "categoria_id": categoria_id})
+
+
+@app.route("/api/canais/<int:cid>", methods=["PUT"])
+@api_login
+def api_editar_canal(cid):
+    uid = usuario_atual()["id"]
+    dados = request.get_json(silent=True) or {}
+    with db.get_connection() as conn:
+        canal = conn.execute("SELECT * FROM canais WHERE id=?", (cid,)).fetchone()
+        if not canal:
+            return jsonify({"erro": "Canal não encontrado."}), 404
+        sid = canal["servidor_id"]
+        if not db.tem_permissao(conn, sid, uid, "gerenciar_canais"):
+            return jsonify({"erro": "Você não tem permissão para gerenciar canais."}), 403
+        nome = dados.get("nome", canal["nome"]).strip().lower().replace(" ", "-") or canal["nome"]
+        descricao = dados.get("descricao", canal["descricao"] or "")
+        cargos_permitidos = dados.get("cargos_permitidos")
+        cargos_json = json.dumps(cargos_permitidos) if cargos_permitidos else None
+        conn.execute(
+            "UPDATE canais SET nome=?, descricao=?, cargos_permitidos=? WHERE id=?",
+            (nome, descricao, cargos_json, cid),
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/canais/<int:cid>", methods=["DELETE"])
+@api_login
+def api_excluir_canal(cid):
+    uid = usuario_atual()["id"]
+    with db.get_connection() as conn:
+        canal = conn.execute("SELECT * FROM canais WHERE id=?", (cid,)).fetchone()
+        if not canal:
+            return jsonify({"erro": "Canal não encontrado."}), 404
+        if not db.tem_permissao(conn, canal["servidor_id"], uid, "gerenciar_canais"):
+            return jsonify({"erro": "Você não tem permissão para gerenciar canais."}), 403
+        conn.execute("DELETE FROM canais WHERE id=?", (cid,))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/servidores/<int:sid>/categorias", methods=["POST"])
+@api_login
+def api_criar_categoria(sid):
+    uid = usuario_atual()["id"]
+    nome = (request.get_json(silent=True) or {}).get("nome", "").strip()
+    if not nome:
+        return jsonify({"erro": "Dê um nome à categoria."}), 400
+    with db.get_connection() as conn:
+        if not db.tem_permissao(conn, sid, uid, "gerenciar_canais"):
+            return jsonify({"erro": "Você não tem permissão para gerenciar canais."}), 403
+        prox = conn.execute("SELECT COALESCE(MAX(ordem),-1)+1 AS o FROM categorias WHERE servidor_id=?", (sid,)).fetchone()["o"]
+        cat_id = db.inserir(conn,
+            "INSERT INTO categorias (servidor_id, nome, ordem) VALUES (?,?,?)", (sid, nome, prox))
+    return jsonify({"id": cat_id, "nome": nome})
+
+
+@app.route("/api/categorias/<int:cat_id>", methods=["DELETE"])
+@api_login
+def api_excluir_categoria(cat_id):
+    uid = usuario_atual()["id"]
+    with db.get_connection() as conn:
+        cat = conn.execute("SELECT * FROM categorias WHERE id=?", (cat_id,)).fetchone()
+        if not cat:
+            return jsonify({"erro": "Categoria não encontrada."}), 404
+        if not db.tem_permissao(conn, cat["servidor_id"], uid, "gerenciar_canais"):
+            return jsonify({"erro": "Você não tem permissão para gerenciar canais."}), 403
+        conn.execute("DELETE FROM categorias WHERE id=?", (cat_id,))
+    return jsonify({"ok": True})
+
+
+# ==================== API: CARGOS E PERMISSÕES ====================
+
+@app.route("/api/permissoes")
+@api_login
+def api_lista_permissoes():
+    return jsonify([{"chave": k, "rotulo": r} for k, r in db.PERMISSOES])
+
+
+@app.route("/api/servidores/<int:sid>/cargos", methods=["POST"])
+@api_login
+def api_criar_cargo(sid):
+    uid = usuario_atual()["id"]
+    dados = request.get_json(silent=True) or {}
+    nome = dados.get("nome", "").strip()
+    cor = dados.get("cor", "#99aab5")
+    permissoes = [p for p in (dados.get("permissoes") or []) if p in db.CHAVES_PERMISSOES]
+    if not nome:
+        return jsonify({"erro": "Dê um nome ao cargo."}), 400
+    with db.get_connection() as conn:
+        if not eh_membro(conn, sid, uid):
+            return jsonify({"erro": "Você não é membro deste servidor."}), 403
+        if not db.tem_permissao(conn, sid, uid, "gerenciar_cargos"):
+            return jsonify({"erro": "Você não tem permissão para gerenciar cargos."}), 403
+        # um cargo novo nasce numa posição abaixo da posição do criador (a não ser que seja o dono)
+        minha_posicao = db.posicao_do_membro(conn, sid, uid)
+        maior = conn.execute("SELECT COALESCE(MAX(ordem),-1) AS o FROM cargos WHERE servidor_id=?", (sid,)).fetchone()["o"]
+        nova_ordem = maior + 1
+        if not db.eh_dono_servidor(conn, sid, uid) and nova_ordem >= minha_posicao:
+            nova_ordem = minha_posicao  # nunca cria cargo na sua própria posição ou acima
+        cargo_id = db.inserir(conn,
+            "INSERT INTO cargos (servidor_id, nome, cor, ordem, permissoes, criado_em) VALUES (?,?,?,?,?,?)",
+            (sid, nome, cor, nova_ordem, json.dumps(permissoes), db.agora()),
+        )
+    return jsonify({"id": cargo_id, "nome": nome, "cor": cor, "ordem": nova_ordem, "permissoes": permissoes})
+
+
+@app.route("/api/cargos/<int:cargo_id>", methods=["PUT"])
+@api_login
+def api_editar_cargo(cargo_id):
+    uid = usuario_atual()["id"]
+    dados = request.get_json(silent=True) or {}
+    with db.get_connection() as conn:
+        cargo = conn.execute("SELECT * FROM cargos WHERE id=?", (cargo_id,)).fetchone()
+        if not cargo:
+            return jsonify({"erro": "Cargo não encontrado."}), 404
+        sid = cargo["servidor_id"]
+        if not db.tem_permissao(conn, sid, uid, "gerenciar_cargos"):
+            return jsonify({"erro": "Você não tem permissão para gerenciar cargos."}), 403
+        if not db.pode_gerenciar_cargo(conn, sid, uid, cargo):
+            return jsonify({"erro": "Você não pode editar um cargo igual ou acima do seu."}), 403
+        nome = dados.get("nome", cargo["nome"]).strip() or cargo["nome"]
+        cor = dados.get("cor", cargo["cor"])
+        permissoes = dados.get("permissoes")
+        if permissoes is not None:
+            permissoes = [p for p in permissoes if p in db.CHAVES_PERMISSOES]
+        else:
+            permissoes = json.loads(cargo["permissoes"] or "[]")
+        conn.execute(
+            "UPDATE cargos SET nome=?, cor=?, permissoes=? WHERE id=?",
+            (nome, cor, json.dumps(permissoes), cargo_id),
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/cargos/<int:cargo_id>", methods=["DELETE"])
+@api_login
+def api_excluir_cargo(cargo_id):
+    uid = usuario_atual()["id"]
+    with db.get_connection() as conn:
+        cargo = conn.execute("SELECT * FROM cargos WHERE id=?", (cargo_id,)).fetchone()
+        if not cargo:
+            return jsonify({"erro": "Cargo não encontrado."}), 404
+        if not db.tem_permissao(conn, cargo["servidor_id"], uid, "gerenciar_cargos"):
+            return jsonify({"erro": "Você não tem permissão para gerenciar cargos."}), 403
+        if not db.pode_gerenciar_cargo(conn, cargo["servidor_id"], uid, cargo):
+            return jsonify({"erro": "Você não pode excluir um cargo igual ou acima do seu."}), 403
+        conn.execute("DELETE FROM cargos WHERE id=?", (cargo_id,))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/cargos/<int:cargo_id>/membros/<int:alvo_id>", methods=["POST"])
+@api_login
+def api_atribuir_cargo(cargo_id, alvo_id):
+    uid = usuario_atual()["id"]
+    with db.get_connection() as conn:
+        cargo = conn.execute("SELECT * FROM cargos WHERE id=?", (cargo_id,)).fetchone()
+        if not cargo:
+            return jsonify({"erro": "Cargo não encontrado."}), 404
+        sid = cargo["servidor_id"]
+        if not eh_membro(conn, sid, alvo_id):
+            return jsonify({"erro": "Usuário não é membro deste servidor."}), 404
+        if not db.tem_permissao(conn, sid, uid, "gerenciar_cargos"):
+            return jsonify({"erro": "Você não tem permissão para gerenciar cargos."}), 403
+        if not db.pode_gerenciar_cargo(conn, sid, uid, cargo):
+            return jsonify({"erro": "Você não pode atribuir um cargo igual ou acima do seu."}), 403
+        existe = conn.execute(
+            "SELECT 1 FROM cargo_membros WHERE cargo_id=? AND usuario_id=?", (cargo_id, alvo_id)
+        ).fetchone()
+        if not existe:
+            conn.execute(
+                "INSERT INTO cargo_membros (cargo_id, usuario_id) VALUES (?,?)", (cargo_id, alvo_id))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/cargos/<int:cargo_id>/membros/<int:alvo_id>", methods=["DELETE"])
+@api_login
+def api_remover_cargo_membro(cargo_id, alvo_id):
+    uid = usuario_atual()["id"]
+    with db.get_connection() as conn:
+        cargo = conn.execute("SELECT * FROM cargos WHERE id=?", (cargo_id,)).fetchone()
+        if not cargo:
+            return jsonify({"erro": "Cargo não encontrado."}), 404
+        sid = cargo["servidor_id"]
+        if not db.tem_permissao(conn, sid, uid, "gerenciar_cargos"):
+            return jsonify({"erro": "Você não tem permissão para gerenciar cargos."}), 403
+        if not db.pode_gerenciar_cargo(conn, sid, uid, cargo):
+            return jsonify({"erro": "Você não pode remover um cargo igual ou acima do seu."}), 403
+        conn.execute("DELETE FROM cargo_membros WHERE cargo_id=? AND usuario_id=?", (cargo_id, alvo_id))
+    return jsonify({"ok": True})
+
+
+# ==================== API: MODERAÇÃO (expulsar / banir) ====================
+
+@app.route("/api/servidores/<int:sid>/membros/<int:alvo_id>/expulsar", methods=["POST"])
+@api_login
+def api_expulsar_membro(sid, alvo_id):
+    uid = usuario_atual()["id"]
+    with db.get_connection() as conn:
+        if not eh_membro(conn, sid, alvo_id):
+            return jsonify({"erro": "Usuário não é membro deste servidor."}), 404
+        if not db.tem_permissao(conn, sid, uid, "expulsar_membros"):
+            return jsonify({"erro": "Você não tem permissão para expulsar membros."}), 403
+        if not db.pode_agir_sobre_membro(conn, sid, uid, alvo_id):
+            return jsonify({"erro": "Você não pode expulsar este membro."}), 403
+        conn.execute("DELETE FROM membros WHERE servidor_id=? AND usuario_id=?", (sid, alvo_id))
+        conn.execute(
+            "DELETE FROM cargo_membros WHERE usuario_id=? AND cargo_id IN (SELECT id FROM cargos WHERE servidor_id=?)",
+            (alvo_id, sid),
+        )
+    _notificar_usuario(alvo_id, "expulso_do_servidor", {"servidor_id": sid})
+    return jsonify({"ok": True})
+
+
+@app.route("/api/servidores/<int:sid>/membros/<int:alvo_id>/banir", methods=["POST"])
+@api_login
+def api_banir_membro(sid, alvo_id):
+    uid = usuario_atual()["id"]
+    motivo = (request.get_json(silent=True) or {}).get("motivo", "").strip()
+    with db.get_connection() as conn:
+        if not eh_membro(conn, sid, alvo_id):
+            return jsonify({"erro": "Usuário não é membro deste servidor."}), 404
+        if not db.tem_permissao(conn, sid, uid, "banir_membros"):
+            return jsonify({"erro": "Você não tem permissão para banir membros."}), 403
+        if not db.pode_agir_sobre_membro(conn, sid, uid, alvo_id):
+            return jsonify({"erro": "Você não pode banir este membro."}), 403
+        conn.execute("DELETE FROM membros WHERE servidor_id=? AND usuario_id=?", (sid, alvo_id))
+        conn.execute(
+            "DELETE FROM cargo_membros WHERE usuario_id=? AND cargo_id IN (SELECT id FROM cargos WHERE servidor_id=?)",
+            (alvo_id, sid),
+        )
+        existe = conn.execute("SELECT 1 FROM banidos WHERE servidor_id=? AND usuario_id=?", (sid, alvo_id)).fetchone()
+        if not existe:
+            conn.execute(
+                "INSERT INTO banidos (servidor_id, usuario_id, motivo, criado_em) VALUES (?,?,?,?)",
+                (sid, alvo_id, motivo, db.agora()),
+            )
+    _notificar_usuario(alvo_id, "banido_do_servidor", {"servidor_id": sid})
+    return jsonify({"ok": True})
+
+
+@app.route("/api/servidores/<int:sid>/banidos")
+@api_login
+def api_lista_banidos(sid):
+    uid = usuario_atual()["id"]
+    with db.get_connection() as conn:
+        if not db.tem_permissao(conn, sid, uid, "banir_membros"):
+            return jsonify({"erro": "Você não tem permissão para ver banidos."}), 403
+        linhas = conn.execute(
+            """SELECT b.usuario_id AS id, u.nome_exibicao AS nome, u.usuario, b.motivo, b.criado_em
+               FROM banidos b JOIN usuarios u ON u.id = b.usuario_id WHERE b.servidor_id=?""",
+            (sid,),
+        ).fetchall()
+    return jsonify([dict(r) for r in linhas])
+
+
+@app.route("/api/servidores/<int:sid>/banidos/<int:alvo_id>", methods=["DELETE"])
+@api_login
+def api_desbanir_membro(sid, alvo_id):
+    uid = usuario_atual()["id"]
+    with db.get_connection() as conn:
+        if not db.tem_permissao(conn, sid, uid, "banir_membros"):
+            return jsonify({"erro": "Você não tem permissão para desbanir."}), 403
+        conn.execute("DELETE FROM banidos WHERE servidor_id=? AND usuario_id=?", (sid, alvo_id))
+    return jsonify({"ok": True})
+
+
+def registrar_notificacao_geral(conn, sid, autor_id, texto):
+    pass  # gancho reservado para notificações futuras de atividade do servidor
 
 
 # ==================== API: AMIGOS ====================
@@ -674,14 +980,12 @@ def ws_apagar_mensagem(data):
         m = conn.execute("SELECT * FROM mensagens WHERE id=?", (mid,)).fetchone()
         if not m:
             return
-        # autor apaga a própria; dono/admin do servidor também podem
+        # autor apaga a própria; quem tem 'gerenciar_mensagens' no servidor também pode
         pode = (m["autor_id"] == u["id"])
         if not pode:
-            papel = conn.execute(
-                """SELECT mm.papel FROM membros mm
-                   JOIN canais c ON c.servidor_id = mm.servidor_id
-                   WHERE c.id=? AND mm.usuario_id=?""", (m["canal_id"], u["id"])).fetchone()
-            pode = papel and papel["papel"] in ("dono", "admin")
+            canal = conn.execute("SELECT servidor_id FROM canais WHERE id=?", (m["canal_id"],)).fetchone()
+            if canal:
+                pode = db.tem_permissao(conn, canal["servidor_id"], u["id"], "gerenciar_mensagens")
         if not pode:
             return
         cid = m["canal_id"]

@@ -379,26 +379,41 @@ async function abrirServidor(sid, botao) {
   const s = await jget(`/api/servidores/${sid}`);
   if (s.erro) { alert(s.erro); return; }
   servidorAtual = s;
+  const minhasPerms = new Set(s.minhas_permissoes || []);
+  const podeGerenciarCanais = s.sou_dono || minhasPerms.has("gerenciar_canais");
+  const podeGerenciarCargos = s.sou_dono || minhasPerms.has("gerenciar_cargos");
+  const podeExpulsar = s.sou_dono || minhasPerms.has("expulsar_membros");
+  const podeBanir = s.sou_dono || minhasPerms.has("banir_membros");
 
   document.getElementById("servidorNome").textContent = s.nome;
   const btnConvite = document.getElementById("btnConvite");
   btnConvite.hidden = false;
   btnConvite.onclick = () => mostrarConvite(s.convite);
 
+  const btnCargos = document.getElementById("btnCargos");
+  btnCargos.hidden = !podeGerenciarCargos;
+  btnCargos.onclick = () => abrirModalCargos(sid);
+
   // monta canais por categoria
   const cont = document.getElementById("canaisLista");
   cont.innerHTML = "";
-  const podeCriar = (s.dono_id === EU.id); // simplificado: dono cria canais
   s.categorias.forEach((cat) => {
     const tit = document.createElement("div");
     tit.className = "categoria-titulo";
     tit.innerHTML = `<span>${escapar(cat.nome)}</span>` +
-      (podeCriar ? `<button class="categoria-add" title="Novo canal">+</button>` : "");
-    if (podeCriar) tit.querySelector(".categoria-add").onclick = () => criarCanal(sid, cat.id);
+      (podeGerenciarCanais ? `<button class="categoria-add" title="Novo canal">+</button>` : "");
+    if (podeGerenciarCanais) tit.querySelector(".categoria-add").onclick = () => criarCanal(sid, cat.id);
     cont.appendChild(tit);
-    cat.canais.forEach((c) => cont.appendChild(itemCanal(c)));
+    cat.canais.forEach((c) => cont.appendChild(itemCanal(c, sid, podeGerenciarCanais, s.cargos)));
   });
-  s.sem_categoria.forEach((c) => cont.appendChild(itemCanal(c)));
+  s.sem_categoria.forEach((c) => cont.appendChild(itemCanal(c, sid, podeGerenciarCanais, s.cargos)));
+  if (podeGerenciarCanais) {
+    const addCat = document.createElement("button");
+    addCat.className = "btn-sec btn-nova-categoria";
+    addCat.textContent = "+ Nova categoria";
+    addCat.onclick = () => criarCategoria(sid);
+    cont.appendChild(addCat);
+  }
 
   // membros
   const colM = document.getElementById("colMembros");
@@ -409,10 +424,22 @@ async function abrirServidor(sid, botao) {
     const el = document.createElement("div");
     el.className = "membro-item";
     const cor = m.cor && m.cor !== "#a855f7" ? m.cor : corDe(m.nome);
-    const papel = m.papel === "dono" ? '<span class="membro-papel papel-dono">dono</span>'
-      : m.papel === "admin" ? '<span class="membro-papel papel-admin">admin</span>' : "";
-    el.innerHTML = `<span class="membro-avatar" style="background:${cor}">${iniciais(m.nome)}</span>
-                    <span class="membro-nome">${escapar(m.nome)}</span>${papel}`;
+    const papel = m.papel === "dono" ? '<span class="membro-papel papel-dono">dono</span>' : "";
+    const badgesCargo = (m.cargos || []).map((c) =>
+      `<span class="badge-cargo" style="color:${c.cor};border-color:${c.cor}55;background:${c.cor}18">${escapar(c.nome)}</span>`
+    ).join("");
+    const podeAgir = (podeGerenciarCargos || podeExpulsar || podeBanir) && m.papel !== "dono" && m.id !== EU.id;
+    el.innerHTML = `
+      <span class="membro-avatar" style="background:${cor}">${iniciais(m.nome)}</span>
+      <span class="membro-nome-wrap">
+        <span class="membro-nome">${escapar(m.nome)}</span>
+        <span class="membro-badges">${badgesCargo}</span>
+      </span>${papel}
+      ${podeAgir ? '<button class="acao-msg btn-membro-menu" title="Gerenciar">⋮</button>' : ""}`;
+    if (podeAgir) {
+      el.querySelector(".btn-membro-menu").onclick = (e) =>
+        abrirMenuMembro(e, sid, m, s.cargos, { podeGerenciarCargos, podeExpulsar, podeBanir });
+    }
     ml.appendChild(el);
   });
 
@@ -421,13 +448,75 @@ async function abrirServidor(sid, botao) {
   if (primeiro) primeiro.click();
 }
 
-function itemCanal(c) {
+function itemCanal(c, sid, podeGerenciar, cargosDoServidor) {
   const el = document.createElement("div");
   el.className = "canal-item";
   el.dataset.canal = c.id;
-  el.innerHTML = `<span class="hash">#</span> ${escapar(c.nome)}`;
-  el.addEventListener("click", () => abrirCanal(c, el));
+  const restrito = c.cargos_permitidos && c.cargos_permitidos.length > 0;
+  el.innerHTML = `<span class="hash">${restrito ? "🔒" : "#"}</span> <span class="canal-nome-texto">${escapar(c.nome)}</span>` +
+    (podeGerenciar ? `<button class="canal-editar" title="Editar canal">⚙</button>` : "");
+  el.querySelector(".canal-nome-texto").parentNode.addEventListener("click", (e) => {
+    if (e.target.closest(".canal-editar")) return;
+    abrirCanal(c, el);
+  });
+  if (podeGerenciar) {
+    el.querySelector(".canal-editar").addEventListener("click", (e) => {
+      e.stopPropagation();
+      abrirModalEditarCanal(sid, c, cargosDoServidor);
+    });
+  }
   return el;
+}
+
+async function criarCategoria(sid) {
+  const nome = prompt("Nome da nova categoria:");
+  if (!nome || !nome.trim()) return;
+  const { ok, dados } = await jpost(`/api/servidores/${sid}/categorias`, { nome: nome.trim() });
+  if (ok) abrirServidor(sid, document.querySelector(`.srv-btn[data-servidor="${sid}"]`));
+  else alert(dados.erro || "Erro ao criar categoria.");
+}
+
+function abrirModalEditarCanal(sid, canal, cargos) {
+  modalFundo.hidden = false;
+  const checks = (cargos || []).map((c) => `
+    <label class="check-cargo">
+      <input type="checkbox" value="${c.id}" ${canal.cargos_permitidos.includes(c.id) ? "checked" : ""}>
+      <span style="color:${c.cor}">${escapar(c.nome)}</span>
+    </label>`).join("") || '<p class="m-sub">Nenhum cargo criado ainda. Sem cargos marcados, o canal fica visível a todos.</p>';
+  modal.innerHTML = `
+    <div class="modal-topo">
+      <h2>Editar #${escapar(canal.nome)}</h2>
+      <button class="modal-fechar" id="mFechar">&times;</button>
+    </div>
+    <label>Nome do canal<input id="editCanalNome" value="${escapar(canal.nome)}"></label>
+    <label>Descrição<input id="editCanalDesc" value="${escapar(canal.descricao || "")}" placeholder="Opcional"></label>
+    <p class="m-sub" style="margin-top:14px">Restringir a cargos específicos (vazio = todos veem):</p>
+    <div class="lista-checks-cargo">${checks}</div>
+    <div class="modal-acoes">
+      <button class="btn-sec" id="mExcluirCanal" style="margin-right:auto;color:var(--coral)">Excluir canal</button>
+      <button class="btn-sec" id="mFechar2">Cancelar</button>
+      <button class="btn-pri" id="mSalvarCanal">Salvar</button>
+    </div>`;
+  document.getElementById("mFechar").onclick = fecharModal;
+  document.getElementById("mFechar2").onclick = fecharModal;
+  document.getElementById("mSalvarCanal").onclick = async () => {
+    const nome = document.getElementById("editCanalNome").value.trim();
+    const descricao = document.getElementById("editCanalDesc").value.trim();
+    const marcados = [...modal.querySelectorAll(".check-cargo input:checked")].map((i) => parseInt(i.value));
+    const { ok, dados } = await A_jputCanal(canal.id, { nome, descricao, cargos_permitidos: marcados });
+    if (ok) { fecharModal(); abrirServidor(sid, document.querySelector(`.srv-btn[data-servidor="${sid}"]`)); }
+    else alert(dados.erro || "Erro ao salvar.");
+  };
+  document.getElementById("mExcluirCanal").onclick = async () => {
+    if (!confirm(`Excluir o canal #${canal.nome}? Isso apaga todas as mensagens dele.`)) return;
+    const r = await fetch(`/api/canais/${canal.id}`, { method: "DELETE" });
+    if (r.ok) { fecharModal(); abrirServidor(sid, document.querySelector(`.srv-btn[data-servidor="${sid}"]`)); }
+    else alert("Erro ao excluir canal.");
+  };
+}
+async function A_jputCanal(cid, corpo) {
+  const r = await fetch(`/api/canais/${cid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo) });
+  return { ok: r.ok, dados: await r.json() };
 }
 
 /* ---------------- canais e mensagens ---------------- */
@@ -745,6 +834,148 @@ async function criarCanal(sid, categoriaId) {
   const { ok, dados } = await jpost(`/api/servidores/${sid}/canais`, { nome: nome.trim(), categoria_id: categoriaId });
   if (ok) abrirServidor(sid, document.querySelector(`.srv-btn[data-servidor="${sid}"]`));
   else alert(dados.erro || "Erro ao criar canal.");
+}
+
+/* ---------------- gerenciar cargos ---------------- */
+let PERMISSOES_DISPONIVEIS = null;
+async function abrirModalCargos(sid) {
+  if (!PERMISSOES_DISPONIVEIS) PERMISSOES_DISPONIVEIS = await jget("/api/permissoes");
+  const s = await jget(`/api/servidores/${sid}`);
+  modalFundo.hidden = false;
+  renderModalCargos(sid, s);
+}
+function renderModalCargos(sid, s) {
+  const linhas = s.cargos.map((c) => `
+    <div class="cargo-linha">
+      <span class="cargo-cor-bola" style="background:${c.cor}"></span>
+      <span class="cargo-nome-linha">${escapar(c.nome)}</span>
+      <span class="cargo-perms-resumo">${c.permissoes.length ? c.permissoes.length + " permissão(ões)" : "sem permissões"}</span>
+      <button class="btn-sec btn-pequeno" data-editar-cargo="${c.id}">Editar</button>
+    </div>`).join("") || '<p class="m-sub">Nenhum cargo criado ainda.</p>';
+  modal.innerHTML = `
+    <div class="modal-topo">
+      <h2>Cargos — ${escapar(s.nome)}</h2>
+      <button class="modal-fechar" id="mFechar">&times;</button>
+    </div>
+    <p class="m-sub">Cargos no topo têm mais poder. Você só edita cargos abaixo do seu nível.</p>
+    <div class="lista-cargos">${linhas}</div>
+    <div class="modal-acoes">
+      <button class="btn-pri" id="mNovoCargo" style="width:100%">+ Criar cargo</button>
+    </div>`;
+  document.getElementById("mFechar").onclick = fecharModal;
+  document.getElementById("mNovoCargo").onclick = () => abrirFormCargo(sid, s, null);
+  modal.querySelectorAll("[data-editar-cargo]").forEach((b) => {
+    b.onclick = () => {
+      const cargo = s.cargos.find((c) => c.id == b.dataset.editarCargo);
+      abrirFormCargo(sid, s, cargo);
+    };
+  });
+}
+function abrirFormCargo(sid, s, cargo) {
+  const editando = !!cargo;
+  const nome = editando ? cargo.nome : "";
+  const cor = editando ? cargo.cor : "#a855f7";
+  const permsAtuais = new Set(editando ? cargo.permissoes : []);
+  const checks = PERMISSOES_DISPONIVEIS.map((p) => `
+    <label class="check-cargo">
+      <input type="checkbox" value="${p.chave}" ${permsAtuais.has(p.chave) ? "checked" : ""}>
+      <span>${escapar(p.rotulo)}</span>
+    </label>`).join("");
+  modal.innerHTML = `
+    <div class="modal-topo">
+      <h2>${editando ? "Editar cargo" : "Novo cargo"}</h2>
+      <button class="modal-fechar" id="mFechar">&times;</button>
+    </div>
+    <div class="campo-duplo-cargo">
+      <label>Nome<input id="cargoNome" value="${escapar(nome)}" maxlength="30"></label>
+      <label>Cor<input id="cargoCor" type="color" value="${cor}"></label>
+    </div>
+    <p class="m-sub" style="margin-top:14px">Permissões:</p>
+    <div class="lista-checks-cargo">${checks}</div>
+    <div class="modal-acoes">
+      ${editando ? '<button class="btn-sec" id="mExcluirCargo" style="margin-right:auto;color:var(--coral)">Excluir cargo</button>' : ""}
+      <button class="btn-sec" id="mVoltarCargos">Voltar</button>
+      <button class="btn-pri" id="mSalvarCargo">${editando ? "Salvar" : "Criar"}</button>
+    </div>`;
+  document.getElementById("mFechar").onclick = fecharModal;
+  document.getElementById("mVoltarCargos").onclick = () => renderModalCargos(sid, s);
+  document.getElementById("mSalvarCargo").onclick = async () => {
+    const nomeNovo = document.getElementById("cargoNome").value.trim();
+    if (!nomeNovo) return;
+    const corNova = document.getElementById("cargoCor").value;
+    const permissoes = [...modal.querySelectorAll(".check-cargo input:checked")].map((i) => i.value);
+    let r;
+    if (editando) r = await fetch(`/api/cargos/${cargo.id}`, { method: "PUT", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ nome: nomeNovo, cor: corNova, permissoes }) });
+    else r = await fetch(`/api/servidores/${sid}/cargos`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ nome: nomeNovo, cor: corNova, permissoes }) });
+    const dados = await r.json();
+    if (r.ok) { const s2 = await jget(`/api/servidores/${sid}`); renderModalCargos(sid, s2); abrirServidor(sid, document.querySelector(`.srv-btn[data-servidor="${sid}"]`)); }
+    else alert(dados.erro || "Erro ao salvar cargo.");
+  };
+  if (editando) {
+    document.getElementById("mExcluirCargo").onclick = async () => {
+      if (!confirm(`Excluir o cargo "${cargo.nome}"?`)) return;
+      const r = await fetch(`/api/cargos/${cargo.id}`, { method: "DELETE" });
+      const dados = await r.json();
+      if (r.ok) { const s2 = await jget(`/api/servidores/${sid}`); renderModalCargos(sid, s2); abrirServidor(sid, document.querySelector(`.srv-btn[data-servidor="${sid}"]`)); }
+      else alert(dados.erro || "Erro ao excluir.");
+    };
+  }
+}
+
+/* ---------------- menu de ações do membro ---------------- */
+function abrirMenuMembro(ev, sid, membro, cargos, perms) {
+  ev.stopPropagation();
+  document.querySelectorAll(".menu-membro-flutuante").forEach((m) => m.remove());
+  const menu = document.createElement("div");
+  menu.className = "menu-membro-flutuante";
+  let html = "";
+  if (perms.podeGerenciarCargos && cargos.length) {
+    const meusCargos = new Set((membro.cargos || []).map((c) => c.id));
+    html += `<div class="menu-secao">Atribuir cargo</div>`;
+    cargos.forEach((c) => {
+      html += `<label class="menu-item-check">
+        <input type="checkbox" data-cargo="${c.id}" ${meusCargos.has(c.id) ? "checked" : ""}>
+        <span style="color:${c.cor}">${escapar(c.nome)}</span>
+      </label>`;
+    });
+  }
+  if (perms.podeExpulsar) html += `<button class="menu-item-acao" data-acao-membro="expulsar">Expulsar do servidor</button>`;
+  if (perms.podeBanir) html += `<button class="menu-item-acao perigo" data-acao-membro="banir">Banir do servidor</button>`;
+  menu.innerHTML = html || '<div class="menu-secao">Sem ações disponíveis</div>';
+  document.body.appendChild(menu);
+  const r = ev.target.getBoundingClientRect();
+  menu.style.top = (r.bottom + 4) + "px";
+  menu.style.left = Math.min(r.left - 160, window.innerWidth - 240) + "px";
+
+  menu.querySelectorAll("[data-cargo]").forEach((chk) => {
+    chk.addEventListener("change", async () => {
+      const cid = chk.dataset.cargo;
+      const url = `/api/cargos/${cid}/membros/${membro.id}`;
+      const r2 = await fetch(url, { method: chk.checked ? "POST" : "DELETE" });
+      if (!r2.ok) { const d = await r2.json(); alert(d.erro || "Erro ao atualizar cargo."); chk.checked = !chk.checked; }
+      else abrirServidor(sid, document.querySelector(`.srv-btn[data-servidor="${sid}"]`));
+    });
+  });
+  const btnExp = menu.querySelector('[data-acao-membro="expulsar"]');
+  if (btnExp) btnExp.onclick = async () => {
+    if (!confirm(`Expulsar ${membro.nome} do servidor?`)) return;
+    const r2 = await fetch(`/api/servidores/${sid}/membros/${membro.id}/expulsar`, { method: "POST" });
+    const d = await r2.json();
+    if (r2.ok) { fecharMenuMembro(); abrirServidor(sid, document.querySelector(`.srv-btn[data-servidor="${sid}"]`)); }
+    else alert(d.erro);
+  };
+  const btnBan = menu.querySelector('[data-acao-membro="banir"]');
+  if (btnBan) btnBan.onclick = async () => {
+    if (!confirm(`Banir ${membro.nome} do servidor? Ele não poderá reentrar pelo convite.`)) return;
+    const r2 = await fetch(`/api/servidores/${sid}/membros/${membro.id}/banir`, { method: "POST", headers: {"Content-Type":"application/json"}, body: "{}" });
+    const d = await r2.json();
+    if (r2.ok) { fecharMenuMembro(); abrirServidor(sid, document.querySelector(`.srv-btn[data-servidor="${sid}"]`)); }
+    else alert(d.erro);
+  };
+  setTimeout(() => document.addEventListener("click", fecharMenuMembro, { once: true }), 0);
+}
+function fecharMenuMembro() {
+  document.querySelectorAll(".menu-membro-flutuante").forEach((m) => m.remove());
 }
 
 function mostrarConvite(codigo) {

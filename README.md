@@ -33,6 +33,12 @@ Ou clique em "Criar conta" para fazer a sua (você já ganha um servidor própri
 ## O que funciona
 
 - **Login e cadastro** com senha protegida por hash.
+- **Cargos personalizáveis por servidor**: crie cargos com nome, cor e permissões
+  (administrador, gerenciar servidor/canais/cargos/mensagens, expulsar, banir).
+  Hierarquia de verdade — cada um só gerencia cargos e membros abaixo do próprio nível;
+  o dono está sempre acima de todos e nunca pode ser removido.
+- **Canais restritos por cargo** (ficam invisíveis para quem não tem o cargo).
+- **Expulsar e banir membros** (banido não consegue reentrar pelo convite).
 - **Sistema de amigos completo**: adicionar por nome de usuário, aceitar/recusar pedidos, remover, bloquear/desbloquear.
 - **Status online/offline em tempo real** entre amigos.
 - **Mensagens diretas (DM)**: converse com qualquer amigo, com reposta, edição e exclusão (tudo em tempo real, igual aos canais de servidor).

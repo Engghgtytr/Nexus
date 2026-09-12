@@ -12,14 +12,10 @@
 <body>
 <div class="auth-split">
   <div class="auth-arte" aria-hidden="true">
-    <div class="rede">
+    <div class="rede" id="rede">
+      <svg class="linhas" id="linhasRede"></svg>
       <span class="no n1"></span><span class="no n2"></span><span class="no n3"></span>
       <span class="no n4"></span><span class="no n5"></span><span class="no n6"></span>
-      <svg class="linhas" viewBox="0 0 400 400" preserveAspectRatio="none">
-        <line x1="80" y1="70" x2="230" y2="140"/><line x1="230" y1="140" x2="330" y2="90"/>
-        <line x1="230" y1="140" x2="180" y2="280"/><line x1="180" y1="280" x2="90" y2="320"/>
-        <line x1="180" y1="280" x2="320" y2="300"/><line x1="80" y1="70" x2="90" y2="320"/>
-      </svg>
     </div>
     <div class="auth-arte-texto">
       <h2>Onde suas comunidades se encontram.</h2>
@@ -78,6 +74,54 @@ function verSenha(){
   if(i.type==="password"){i.type="text";b.textContent="Ocultar";}
   else{i.type="password";b.textContent="Mostrar";}
 }
+</script>
+<script>
+(function () {
+  var rede = document.getElementById("rede");
+  var svg = document.getElementById("linhasRede");
+  if (!rede || !svg) return;
+
+  var reduzMovimento = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // pares de nós que recebem uma linha entre si
+  var arestas = [
+    ["n1", "n2"], ["n2", "n3"], ["n2", "n4"],
+    ["n4", "n5"], ["n4", "n6"], ["n1", "n5"],
+  ];
+
+  var nos = {};
+  ["n1", "n2", "n3", "n4", "n5", "n6"].forEach(function (id) {
+    nos[id] = rede.querySelector("." + id);
+  });
+
+  // cria uma <line> por aresta, uma vez só
+  var linhas = arestas.map(function () {
+    var l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    l.setAttribute("class", "linha-rede");
+    svg.appendChild(l);
+    return l;
+  });
+
+  function centro(el) {
+    var r = el.getBoundingClientRect();
+    var base = rede.getBoundingClientRect();
+    return { x: r.left - base.left + r.width / 2, y: r.top - base.top + r.height / 2 };
+  }
+
+  function atualizar() {
+    var w = rede.clientWidth, h = rede.clientHeight;
+    svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    arestas.forEach(function (par, i) {
+      var a = centro(nos[par[0]]), b = centro(nos[par[1]]);
+      var l = linhas[i];
+      l.setAttribute("x1", a.x); l.setAttribute("y1", a.y);
+      l.setAttribute("x2", b.x); l.setAttribute("y2", b.y);
+    });
+    if (!reduzMovimento) requestAnimationFrame(atualizar);
+  }
+  atualizar();
+  window.addEventListener("resize", atualizar);
+})();
 </script>
 </body>
 </html>

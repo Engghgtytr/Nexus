@@ -412,3 +412,58 @@ button { font-family: inherit; cursor: pointer; }
   background: var(--coral); color: #fff; font-size: 0.7rem; font-weight: 700;
   min-width: 18px; height: 18px; border-radius: 9px; display: grid; place-items: center; padding: 0 5px;
 }
+
+/* ===========================================================
+   CARGOS E PERMISSÕES
+   =========================================================== */
+.btn-nova-categoria { width: 100%; margin-top: 10px; font-size: 0.82rem; padding: 8px; }
+.canal-editar {
+  margin-left: auto; background: none; border: none; color: var(--texto-fraco);
+  font-size: 0.9rem; padding: 4px; border-radius: 6px; opacity: 0;
+}
+.canal-item:hover .canal-editar { opacity: 1; }
+.canal-editar:hover { background: var(--superficie-2); color: var(--texto); }
+.canal-nome-texto { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.membro-nome-wrap { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.membro-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.badge-cargo {
+  font-size: 0.66rem; font-weight: 600; padding: 1px 7px; border-radius: 999px;
+  border: 1px solid; white-space: nowrap;
+}
+.btn-membro-menu {
+  margin-left: auto; background: none; border: none; color: var(--texto-fraco);
+  font-size: 1.1rem; padding: 4px 8px; border-radius: 6px;
+}
+.btn-membro-menu:hover { background: var(--superficie-2); color: var(--texto); }
+
+.lista-cargos { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; max-height: 320px; overflow-y: auto; }
+.cargo-linha { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--petroleo-2); border-radius: 10px; }
+.cargo-cor-bola { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.cargo-nome-linha { font-weight: 600; flex: 1; }
+.cargo-perms-resumo { font-size: 0.78rem; color: var(--texto-fraco); }
+
+.campo-duplo-cargo { display: grid; grid-template-columns: 1fr 70px; gap: 12px; align-items: end; }
+.campo-duplo-cargo input[type="color"] { padding: 3px; height: 42px; cursor: pointer; }
+
+.lista-checks-cargo { display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; margin: 10px 0 4px; }
+.check-cargo { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; padding: 4px 2px; cursor: pointer; }
+.check-cargo input { accent-color: var(--ciano-escuro); width: 16px; height: 16px; }
+
+/* menu flutuante do membro */
+.menu-membro-flutuante {
+  position: fixed; z-index: 200; width: 220px;
+  background: var(--superficie); border: 1px solid var(--borda);
+  border-radius: 12px; padding: 8px; box-shadow: 0 12px 34px -10px rgba(0,0,0,0.7);
+}
+.menu-secao { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--texto-fraco); padding: 6px 8px 4px; font-weight: 600; }
+.menu-item-check { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 7px; font-size: 0.88rem; cursor: pointer; }
+.menu-item-check:hover { background: var(--superficie-2); }
+.menu-item-check input { accent-color: var(--ciano-escuro); }
+.menu-item-acao {
+  display: block; width: 100%; text-align: left; padding: 8px; border-radius: 7px;
+  background: none; border: none; color: var(--texto); font-size: 0.88rem; margin-top: 4px;
+}
+.menu-item-acao:hover { background: var(--superficie-2); }
+.menu-item-acao.perigo { color: var(--coral); }
+.menu-item-acao.perigo:hover { background: rgba(240,102,63,0.12); }

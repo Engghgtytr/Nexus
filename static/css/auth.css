@@ -37,12 +37,32 @@ body { font-family: var(--font-corpo); background: var(--petroleo); color: var(-
 .rede .no {
   position: absolute; width: 14px; height: 14px; border-radius: 50%;
   background: var(--ciano); box-shadow: 0 0 16px rgba(168,85,247,0.7);
+  animation: flutuarNo 7s ease-in-out infinite, pulsarNo 3.2s ease-in-out infinite;
 }
-.rede .n1 { left: 20%; top: 17%; } .rede .n2 { left: 57%; top: 35%; width: 20px; height: 20px; }
-.rede .n3 { left: 82%; top: 22%; } .rede .n4 { left: 45%; top: 70%; }
-.rede .n5 { left: 22%; top: 80%; } .rede .n6 { left: 80%; top: 75%; background: var(--coral); box-shadow: 0 0 16px rgba(240,102,63,0.6); }
-.rede .linhas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.rede .linhas line { stroke: rgba(168,85,247,0.35); stroke-width: 1.5; }
+.rede .n1 { left: 20%; top: 17%; animation-delay: 0s, 0.2s; }
+.rede .n2 { left: 57%; top: 35%; width: 20px; height: 20px; animation-delay: -1.5s, 0.6s; }
+.rede .n3 { left: 82%; top: 22%; animation-delay: -3s, 1.1s; }
+.rede .n4 { left: 45%; top: 70%; animation-delay: -4.5s, 1.6s; }
+.rede .n5 { left: 22%; top: 80%; animation-delay: -2.2s, 2.1s; }
+.rede .n6 {
+  left: 80%; top: 75%; background: var(--coral); box-shadow: 0 0 16px rgba(240,102,63,0.6);
+  animation-delay: -5.5s, 0.4s;
+}
+@keyframes flutuarNo {
+  0%, 100% { transform: translate(0, 0); }
+  25%      { transform: translate(6px, -10px); }
+  50%      { transform: translate(-4px, 6px); }
+  75%      { transform: translate(-8px, -4px); }
+}
+@keyframes pulsarNo {
+  0%, 100% { filter: brightness(1); transform: scale(1); }
+  50%      { filter: brightness(1.35); transform: scale(1.12); }
+}
+.rede .linhas { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.rede .linhas .linha-rede {
+  stroke: rgba(168,85,247,0.35); stroke-width: 1.5;
+  transition: stroke 0.3s ease;
+}
 .auth-arte-texto { position: relative; z-index: 2; }
 .auth-arte-texto h2 { font-family: var(--font-titulo); font-size: 2rem; line-height: 1.15; max-width: 12ch; }
 .auth-arte-texto p { color: var(--texto-suave); margin-top: 12px; max-width: 40ch; }
@@ -107,3 +127,7 @@ form input:focus { outline: none; border-color: var(--ciano); box-shadow: 0 0 0 
 
 /* Logo (imagem) na marca do login */
 .marca-logo { width: 34px; height: 34px; border-radius: 9px; object-fit: cover; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rede .no { animation: none; }
+}

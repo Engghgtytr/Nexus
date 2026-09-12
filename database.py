@@ -15,6 +15,7 @@ dialeto entre os dois bancos.
 
 import os
 import re
+import json
 import secrets
 from contextlib import contextmanager
 from pathlib import Path
@@ -68,6 +69,9 @@ class CursorPG:
 
     def fetchall(self):
         return self._cur.fetchall()
+
+    def __iter__(self):
+        return iter(self._cur)
 
     @property
     def lastrowid(self):
@@ -232,8 +236,52 @@ def _schema():
         CREATE INDEX IF NOT EXISTS idx_membros_user ON membros(usuario_id);
         CREATE INDEX IF NOT EXISTS idx_canais_srv ON canais(servidor_id);
         CREATE INDEX IF NOT EXISTS idx_msg_canal ON mensagens(canal_id);
+        CREATE TABLE IF NOT EXISTS cargos (
+            id {pk},
+            servidor_id INTEGER NOT NULL REFERENCES servidores(id) ON DELETE CASCADE,
+            nome TEXT NOT NULL,
+            cor TEXT NOT NULL DEFAULT '#99aab5',
+            ordem INTEGER NOT NULL DEFAULT 0,
+            permissoes TEXT NOT NULL DEFAULT '[]',
+            criado_em TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS cargo_membros (
+            id {pk},
+            cargo_id INTEGER NOT NULL REFERENCES cargos(id) ON DELETE CASCADE,
+            usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+            UNIQUE (cargo_id, usuario_id)
+        );
+        CREATE TABLE IF NOT EXISTS banidos (
+            id {pk},
+            servidor_id INTEGER NOT NULL REFERENCES servidores(id) ON DELETE CASCADE,
+            usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+            motivo TEXT DEFAULT '',
+            criado_em TEXT NOT NULL,
+            UNIQUE (servidor_id, usuario_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_cargos_srv ON cargos(servidor_id);
+        CREATE INDEX IF NOT EXISTS idx_cargo_membros_cargo ON cargo_membros(cargo_id);
+        CREATE INDEX IF NOT EXISTS idx_cargo_membros_user ON cargo_membros(usuario_id);
+        CREATE INDEX IF NOT EXISTS idx_banidos_srv ON banidos(servidor_id);
         CREATE INDEX IF NOT EXISTS idx_reacoes_msg ON reacoes(mensagem_id);
     """
+
+
+def _tem_coluna(conn, tabela, coluna):
+    if USANDO_PG:
+        r = conn.execute(
+            "SELECT 1 FROM information_schema.columns WHERE table_name=? AND column_name=?",
+            (tabela, coluna),
+        ).fetchone()
+        return r is not None
+    else:
+        info = conn.execute(f"PRAGMA table_info({tabela})").fetchall()
+        return any(row[1] == coluna for row in info)
+
+
+def _garantir_coluna(conn, tabela, coluna, tipo_sql):
+    if not _tem_coluna(conn, tabela, coluna):
+        conn.execute(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo_sql}")
 
 
 def init_db():
@@ -245,6 +293,8 @@ def init_db():
                 conn.execute(cmd)
         else:
             conn.executescript(schema)
+        # migração: canais ganham uma restrição opcional de visibilidade por cargo
+        _garantir_coluna(conn, "canais", "cargos_permitidos", "TEXT")
 
 
 MOLDES = {
@@ -335,6 +385,107 @@ def obter_ou_criar_conversa(conn, uid_a, uid_b):
         "INSERT INTO conversas_dm (usuario_a_id, usuario_b_id, criado_em) VALUES (?,?,?)",
         (a, b, agora()),
     )
+
+
+# ---------------------------------------------------------------
+# Cargos e permissões
+# ---------------------------------------------------------------
+
+PERMISSOES = [
+    ("administrador", "Administrador (libera tudo, use com cuidado)"),
+    ("gerenciar_servidor", "Gerenciar servidor"),
+    ("gerenciar_canais", "Gerenciar canais e categorias"),
+    ("gerenciar_cargos", "Gerenciar cargos e atribuições"),
+    ("gerenciar_mensagens", "Gerenciar mensagens (apagar de qualquer um)"),
+    ("expulsar_membros", "Expulsar membros"),
+    ("banir_membros", "Banir membros"),
+]
+CHAVES_PERMISSOES = {p[0] for p in PERMISSOES}
+
+
+def eh_dono_servidor(conn, servidor_id, uid):
+    row = conn.execute("SELECT 1 FROM servidores WHERE id=? AND dono_id=?", (servidor_id, uid)).fetchone()
+    return row is not None
+
+
+def cargos_do_membro(conn, servidor_id, uid):
+    """Lista os cargos (linhas completas) que um usuário possui num servidor."""
+    return conn.execute(
+        """SELECT c.* FROM cargos c JOIN cargo_membros cm ON cm.cargo_id = c.id
+           WHERE c.servidor_id=? AND cm.usuario_id=? ORDER BY c.ordem DESC""",
+        (servidor_id, uid),
+    ).fetchall()
+
+
+def permissoes_do_membro(conn, servidor_id, uid):
+    """Conjunto de permissões (strings) que o usuário tem nesse servidor, via cargos."""
+    if eh_dono_servidor(conn, servidor_id, uid):
+        return set(CHAVES_PERMISSOES)
+    perms = set()
+    for c in cargos_do_membro(conn, servidor_id, uid):
+        try:
+            perms.update(json.loads(c["permissoes"] or "[]"))
+        except (ValueError, TypeError):
+            pass
+    if "administrador" in perms:
+        return set(CHAVES_PERMISSOES)
+    return perms
+
+
+def tem_permissao(conn, servidor_id, uid, permissao):
+    if eh_dono_servidor(conn, servidor_id, uid):
+        return True
+    return permissao in permissoes_do_membro(conn, servidor_id, uid)
+
+
+def posicao_do_membro(conn, servidor_id, uid):
+    """Posição na hierarquia = maior 'ordem' entre os cargos do usuário. Sem cargo = -1.
+    O dono não usa esta função para comparação (é sempre o mais alto)."""
+    cargos = cargos_do_membro(conn, servidor_id, uid)
+    if not cargos:
+        return -1
+    return max(c["ordem"] for c in cargos)
+
+
+def pode_agir_sobre_membro(conn, servidor_id, ator_id, alvo_id):
+    """Regra de hierarquia: o dono pode tudo (exceto agir sobre si mesmo em kick/ban,
+    tratado fora); ninguém mais pode agir sobre o dono; fora isso, o ator precisa
+    estar numa posição estritamente maior que o alvo."""
+    if alvo_id == ator_id:
+        return False
+    if eh_dono_servidor(conn, servidor_id, alvo_id):
+        return False
+    if eh_dono_servidor(conn, servidor_id, ator_id):
+        return True
+    return posicao_do_membro(conn, servidor_id, ator_id) > posicao_do_membro(conn, servidor_id, alvo_id)
+
+
+def pode_gerenciar_cargo(conn, servidor_id, ator_id, cargo):
+    """Só se pode criar/editar/excluir/atribuir um cargo em posição abaixo da sua própria
+    (dono sempre pode)."""
+    if eh_dono_servidor(conn, servidor_id, ator_id):
+        return True
+    return posicao_do_membro(conn, servidor_id, ator_id) > cargo["ordem"]
+
+
+def pode_ver_canal(conn, canal, servidor_id, uid):
+    """Canais sem restrição são visíveis a todo membro. Canais restritos exigem
+    que o usuário tenha ao menos um dos cargos permitidos (ou seja dono/administrador)."""
+    restr = canal["cargos_permitidos"] if "cargos_permitidos" in canal.keys() else None
+    if not restr:
+        return True
+    try:
+        permitidos = set(json.loads(restr))
+    except (ValueError, TypeError):
+        return True
+    if not permitidos:
+        return True
+    if eh_dono_servidor(conn, servidor_id, uid):
+        return True
+    if "administrador" in permissoes_do_membro(conn, servidor_id, uid):
+        return True
+    meus_cargos = {c["id"] for c in cargos_do_membro(conn, servidor_id, uid)}
+    return bool(meus_cargos & permitidos)
 
 
 def sao_amigos(conn, uid_a, uid_b):
