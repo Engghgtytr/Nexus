@@ -66,6 +66,10 @@
       <span class="canal-hash">#</span>
       <span id="canalNome">bem-vindo</span>
       <span class="canal-descricao" id="canalDescricao"></span>
+      <div class="chat-cabecalho-acoes" id="botoesLigar" hidden>
+        <button class="cab-acao" id="btnLigarVoz" title="Ligação de voz">📞 voz</button>
+        <button class="cab-acao" id="btnLigarVideo" title="Ligação de vídeo">🎥 vídeo</button>
+      </div>
     </header>
 
     <div class="mensagens" id="mensagens" hidden></div>
@@ -92,12 +96,32 @@
   </aside>
 </div>
 
+<!-- Convites de chamada recebidos (aparecem sobrepostos, em qualquer tela) -->
+<div id="convitesChamada" class="convites-chamada-wrap"></div>
+
+<!-- Tela de chamada (voz/vídeo/tela) -->
+<div class="tela-chamada" id="telaChamada" hidden>
+  <div class="chamada-topo">
+    <span id="chamadaTitulo">Chamada</span>
+    <button class="cab-acao" id="btnAdicionarPessoa">+ adicionar</button>
+  </div>
+  <div class="tiles-chamada" id="tilesChamada"></div>
+  <div class="chamada-controles">
+    <button class="ctrl-chamada" id="btnAlternarMic" title="Microfone">🎤</button>
+    <button class="ctrl-chamada" id="btnAlternarCam" title="Câmera">📷</button>
+    <button class="ctrl-chamada" id="btnAlternarTela" title="Compartilhar tela">🖥️</button>
+    <button class="ctrl-chamada" id="btnConfigChamada" title="Configurações">⚙</button>
+    <button class="ctrl-chamada sair" id="btnSairChamada" title="Sair da chamada">📞</button>
+  </div>
+</div>
+
 <!-- Modal genérico -->
 <div class="modal-fundo" id="modalFundo" hidden>
   <div class="modal" id="modal"></div>
 </div>
 
 <script src="{{ url_for('static', filename='js/socket.io.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/call.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

@@ -81,6 +81,29 @@ nexus/
 
 ---
 
+## Chamadas de voz e vídeo (grupo até 10 pessoas)
+
+Ligue para um amigo direto da conversa (DM) com os botões de voz/vídeo no
+cabeçalho do chat. Funciona ponta a ponta entre os navegadores (WebRTC) — o
+servidor só entrega o convite e repassa a sinalização inicial; o áudio e vídeo
+em si nunca passam por ele.
+
+- **Chamada em grupo, tipo WhatsApp**: qualquer participante pode clicar em
+  "+ adicionar" e chamar mais um amigo, até o limite de 10 pessoas na mesma
+  chamada — não são ligações separadas, todo mundo se conecta com todo mundo.
+- **Câmera e microfone com seletor de dispositivo** (quando você tem mais de um).
+- **Compartilhar tela** com escolha de resolução (1080p/4K) e taxa de quadros
+  (60/144 fps) — são pedidos ao navegador; o resultado real depende do seu
+  monitor e da sua internet.
+- Convite de chamada aparece em tempo real; aceitar, recusar e sair funcionam
+  mesmo se alguém fechar o navegador sem avisar.
+
+Importante: isso é diferente de um "canal de voz" de servidor (onde qualquer
+número de pessoas entra e sai livremente, como no Discord). Aqui é uma
+chamada com começo/fim, limitada a 10 pessoas, que funciona sem precisar de
+um servidor de mídia pago — ótimo para você e seus amigos, mas não escala
+para uma comunidade grande.
+
 ## Próximas etapas (roadmap)
 
 Seguindo a ordem que a própria especificação recomenda:

@@ -35,6 +35,30 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 # Presença: usuario_id -> quantidade de conexões abertas (abas/dispositivos)
 _online = {}
 
+# Chamadas ativas (voz/vídeo). Não fica salvo no banco — é só enquanto dura,
+# igual à presença online. chamada_id -> dict com participantes, tipo, dono.
+_chamadas = {}
+CHAMADA_MAX_PARTICIPANTES = 10
+
+
+def _chamada_info_publica(cid):
+    c = _chamadas.get(cid)
+    if not c:
+        return None
+    return {"id": cid, "tipo": c["tipo"], "participantes": list(c["participantes"])}
+
+
+def _sair_de_todas_chamadas(uid):
+    """Remove o usuário de qualquer chamada em que esteja (usado no disconnect)."""
+    for cid in list(_chamadas.keys()):
+        c = _chamadas.get(cid)
+        if c and uid in c["participantes"]:
+            c["participantes"].discard(uid)
+            socketio.emit("chamada_participante_saiu", {"chamada_id": cid, "usuario_id": uid},
+                          room=f"chamada_{cid}")
+            if not c["participantes"]:
+                del _chamadas[cid]
+
 
 # ---------------- helpers ----------------
 
@@ -882,6 +906,7 @@ def ws_disconnect():
         if _online[uid] == 0:
             del _online[uid]
             _avisar_amigos_status(uid, False)
+    _sair_de_todas_chamadas(uid)
 
 
 def _avisar_amigos_status(uid, online):
@@ -1137,6 +1162,142 @@ def ws_apagar_dm(data):
         cid = m["conversa_id"]
         conn.execute("DELETE FROM mensagens_dm WHERE id=?", (mid,))
     emit("dm_apagada", {"id": mid, "conversa_id": cid}, room=f"dm_{cid}")
+
+
+# ---------------- Chamadas (voz/vídeo/tela) ----------------
+# O servidor só faz três coisas aqui: guarda quem está em qual chamada,
+# aplica o limite de 10 participantes, e retransmite as mensagens de
+# sinalização (ofertas/respostas/candidatos WebRTC) entre os participantes.
+# O áudio/vídeo em si nunca passa pelo servidor — vai direto entre os navegadores.
+
+@socketio.on("chamada_iniciar")
+def ws_chamada_iniciar(data):
+    if not logado():
+        return
+    u = usuario_atual()
+    para_id = data.get("para_id")
+    tipo = data.get("tipo", "video")
+    with db.get_connection() as conn:
+        if not db.sao_amigos(conn, u["id"], para_id):
+            emit("chamada_erro", {"erro": "Vocês precisam ser amigos para ligar."})
+            return
+    cid = f"c{u['id']}-{para_id}-{int(db.agora().replace('-', '').replace(':', '').replace(' ', ''))}"
+    _chamadas[cid] = {"participantes": {u["id"]}, "tipo": tipo, "dono": u["id"]}
+    join_room(f"chamada_{cid}")
+    emit("chamada_criada", {"chamada_id": cid, "tipo": tipo})
+    socketio.emit("chamada_recebida", {
+        "chamada_id": cid, "tipo": tipo,
+        "de": {"id": u["id"], "nome": u["nome"], "usuario": u["usuario"], "cor": u["cor"]},
+        "participantes": list(_chamadas[cid]["participantes"]),
+    }, room=f"usuario_{para_id}")
+
+
+@socketio.on("chamada_convidar")
+def ws_chamada_convidar(data):
+    if not logado():
+        return
+    u = usuario_atual()
+    cid = data.get("chamada_id")
+    para_id = data.get("para_id")
+    c = _chamadas.get(cid)
+    if not c or u["id"] not in c["participantes"]:
+        emit("chamada_erro", {"erro": "Você não está nessa chamada."})
+        return
+    if para_id in c["participantes"]:
+        return
+    if len(c["participantes"]) >= CHAMADA_MAX_PARTICIPANTES:
+        emit("chamada_erro", {"erro": f"A chamada já está no limite de {CHAMADA_MAX_PARTICIPANTES} pessoas."})
+        return
+    with db.get_connection() as conn:
+        if not db.sao_amigos(conn, u["id"], para_id):
+            emit("chamada_erro", {"erro": "Você só pode adicionar amigos à chamada."})
+            return
+    socketio.emit("chamada_recebida", {
+        "chamada_id": cid, "tipo": c["tipo"],
+        "de": {"id": u["id"], "nome": u["nome"], "usuario": u["usuario"], "cor": u["cor"]},
+        "participantes": list(c["participantes"]),
+    }, room=f"usuario_{para_id}")
+
+
+@socketio.on("chamada_aceitar")
+def ws_chamada_aceitar(data):
+    if not logado():
+        return
+    u = usuario_atual()
+    cid = data.get("chamada_id")
+    c = _chamadas.get(cid)
+    if not c:
+        emit("chamada_erro", {"erro": "Essa chamada já terminou."})
+        return
+    if len(c["participantes"]) >= CHAMADA_MAX_PARTICIPANTES:
+        emit("chamada_erro", {"erro": f"A chamada já está no limite de {CHAMADA_MAX_PARTICIPANTES} pessoas."})
+        return
+    participantes_antes = list(c["participantes"])
+    c["participantes"].add(u["id"])
+    join_room(f"chamada_{cid}")
+    # busca nome/cor de quem já estava na chamada, pra quem entra agora já ver os nomes certos
+    with db.get_connection() as conn:
+        if participantes_antes:
+            marc = ",".join("?" * len(participantes_antes))
+            linhas = conn.execute(
+                f"SELECT id, nome_exibicao AS nome, usuario, cor FROM usuarios WHERE id IN ({marc})",
+                participantes_antes,
+            ).fetchall()
+            info_antes = [dict(r) for r in linhas]
+        else:
+            info_antes = []
+    # avisa quem já estava na chamada que uma nova pessoa entrou (pra criarem a conexão com ela)
+    emit("chamada_participante_entrou", {
+        "chamada_id": cid,
+        "usuario": {"id": u["id"], "nome": u["nome"], "usuario": u["usuario"], "cor": u["cor"]},
+    }, room=f"chamada_{cid}", include_self=False)
+    # devolve pra quem acabou de entrar a lista de quem já estava lá (com nome/cor)
+    emit("chamada_entrou", {"chamada_id": cid, "tipo": c["tipo"], "participantes": info_antes})
+
+
+@socketio.on("chamada_recusar")
+def ws_chamada_recusar(data):
+    if not logado():
+        return
+    u = usuario_atual()
+    cid = data.get("chamada_id")
+    c = _chamadas.get(cid)
+    if c:
+        socketio.emit("chamada_recusada", {"chamada_id": cid, "usuario_id": u["id"]}, room=f"chamada_{cid}")
+
+
+@socketio.on("chamada_sair")
+def ws_chamada_sair(data):
+    if not logado():
+        return
+    u = usuario_atual()
+    cid = data.get("chamada_id")
+    c = _chamadas.get(cid)
+    if not c:
+        return
+    c["participantes"].discard(u["id"])
+    leave_room(f"chamada_{cid}")
+    emit("chamada_participante_saiu", {"chamada_id": cid, "usuario_id": u["id"]}, room=f"chamada_{cid}")
+    if not c["participantes"]:
+        del _chamadas[cid]
+
+
+@socketio.on("webrtc_sinal")
+def ws_webrtc_sinal(data):
+    """Repassa oferta/resposta/candidato ICE de um participante para outro.
+    O servidor não entende nem guarda o conteúdo — só entrega."""
+    if not logado():
+        return
+    u = usuario_atual()
+    cid = data.get("chamada_id")
+    para_id = data.get("para_id")
+    c = _chamadas.get(cid)
+    if not c or u["id"] not in c["participantes"] or para_id not in c["participantes"]:
+        return
+    socketio.emit("webrtc_sinal", {
+        "chamada_id": cid, "de_id": u["id"],
+        "tipo": data.get("tipo"), "dados": data.get("dados"),
+    }, room=f"usuario_{para_id}")
 
 
 if __name__ == "__main__":

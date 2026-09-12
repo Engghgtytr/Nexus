@@ -45,6 +45,7 @@ async function jpost(url, corpo) {
 
 /* ---------------- alternar tela inicial (amigos) x chat ---------------- */
 let dmAtual = null; // conversa_id de DM aberta (null quando é canal de servidor)
+let amigoDaConversaAtual = null; // {id, nome, cor} do amigo da DM aberta, para o botão de ligar
 
 function mostrarTelaAmigos() {
   document.getElementById("telaAmigos").hidden = false;
@@ -113,6 +114,7 @@ async function abrirDM(amigoId, nome, cor, el) {
   if (canalAtual && socket) { socket.emit("sair_canal", { canal_id: canalAtual }); canalAtual = null; }
   if (dmAtual && socket) socket.emit("sair_dm", { conversa_id: dmAtual });
   dmAtual = cid;
+  amigoDaConversaAtual = { id: parseInt(amigoId), nome, cor };
   ultimoAutor = null;
 
   document.querySelectorAll(".canal-item").forEach((x) => x.classList.remove("ativo"));
@@ -122,6 +124,7 @@ async function abrirDM(amigoId, nome, cor, el) {
   document.getElementById("canalDescricao").textContent = "";
   document.querySelector(".canal-hash").textContent = "@";
   document.getElementById("formEnvio").hidden = false;
+  document.getElementById("botoesLigar").hidden = false;
   mostrarChat();
 
   socket.emit("entrar_dm", { conversa_id: cid });
@@ -529,7 +532,9 @@ async function abrirCanal(canal, el) {
   if (el) el.classList.add("ativo");
   canalAtual = canal.id;
   ultimoAutor = null;
+  amigoDaConversaAtual = null;
   document.querySelector(".canal-hash").textContent = "#";
+  document.getElementById("botoesLigar").hidden = true;
   mostrarChat();
 
   document.getElementById("canalNome").textContent = canal.nome;
@@ -1028,6 +1033,8 @@ document.querySelector(".srv-btn.inicio").addEventListener("click", mostrarTelaA
 
 (async function iniciar() {
   conectarSocket();
+  registrarEventosDeChamada();
+  ligarControlesDeChamada();
   await carregarServidores();
   // sempre começa na tela inicial de Amigos (sem abrir servidor)
   mostrarTelaAmigos();
